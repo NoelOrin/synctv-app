@@ -50,7 +50,12 @@ packages/**/test/
 !packages/passkeys_darwin/test/passkeys_darwin_test.dart
 packages/**/integration_test/
 packages/**/test_driver/
+packages/synctv_opaque/tool/check_*
+test/data/synctv_api/protobuf_synctv_test.dart
+test/features/auth/application/opaque_client_test.dart
+test/features/room/data/room_realtime_connection_test.dart
 packages/**/pubspec.lock
+!packages/synctv_opaque/pubspec.lock
 packages/**/.gradle/
 packages/**/target/
 # Symbolication related

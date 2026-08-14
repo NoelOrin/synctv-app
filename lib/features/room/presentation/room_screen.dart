@@ -42,7 +42,6 @@ import 'package:synctv_app/features/room/application/room_management_gateway.dar
 import 'package:synctv_app/features/media_library/application/media_library_gateway.dart';
 import 'package:synctv_app/features/room/application/picture_in_picture_controller.dart';
 import 'package:synctv_app/features/room/application/player_volume_preferences_controller.dart';
-import 'package:synctv_app/features/room/application/playback_overlay_preferences_controller.dart';
 import 'package:synctv_app/features/media_p2p/application/p2p_media_preferences_controller.dart';
 import 'package:synctv_app/features/media_p2p/application/p2p_media_runtime.dart';
 import 'package:synctv_app/features/room/application/room_realtime_channel.dart';
@@ -183,13 +182,6 @@ class RoomCollaborationTabBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final visibleIndexes = [
-      for (var index = 0; index < labels.length; index++)
-        if (enabled[index]) index,
-    ];
-
-    if (visibleIndexes.isEmpty) return const SizedBox.shrink();
-
     return AppPanelSurface(
       height: 56,
       color: theme.colorScheme.surface,
@@ -199,13 +191,13 @@ class RoomCollaborationTabBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          for (final index in visibleIndexes)
+          for (var index = 0; index < labels.length; index++)
             Expanded(
               child: _RoomCollaborationTabButton(
                 label: labels[index],
                 icon: icons[index],
                 selected: selectedIndex == index,
-                enabled: true,
+                enabled: enabled[index],
                 onPressed: () => onSelected(index),
               ),
             ),
@@ -300,7 +292,6 @@ class _RoomScreenState extends State<RoomScreen>
   late final P2pMediaRuntimeFactory _p2pRuntimeFactory;
   late final VoiceChatSessionFactory _voiceChatSessionFactory;
   late final PlayerVolumePreferencesController _playerVolumePreferences;
-  late final PlaybackOverlayPreferencesController _playbackOverlayPreferences;
 
   late TabController _tabController;
   late PlaybackModeConfig _playbackModeConfig;
@@ -502,7 +493,6 @@ class _RoomScreenState extends State<RoomScreen>
   bool get _canViewMembers => _capabilities.canViewMembers;
   bool get _canViewChatHistory => _capabilities.canViewChatHistory;
   bool get _canSendChatMessages => _capabilities.canSendChatMessages;
-  bool get _canAccessChat => _canViewChatHistory || _canSendChatMessages;
   bool get _canManageOwnMedia => _capabilities.canManageOwnMedia;
   bool get _canDeleteMedia => _capabilities.canDeleteMedia;
   bool get _canClearMedia => _capabilities.canClearMedia;
@@ -512,24 +502,6 @@ class _RoomScreenState extends State<RoomScreen>
   bool get _canDeleteChatMessages => _capabilities.canDeleteChatMessages;
 
   bool get _canViewPlaybackHistory => _capabilities.canViewPlaybackHistory;
-
-  List<int> get _visibleRoomTabIndexes => [
-    if (_canAccessChat) 0,
-    if (_canBrowseLibrary) 1,
-    if (_canViewMembers) 2,
-    if (_showRealtimeDebugTab) 3,
-  ];
-
-  void _ensureSelectedRoomTabIsVisible() {
-    final visibleTabs = _visibleRoomTabIndexes;
-    if (visibleTabs.isEmpty || visibleTabs.contains(_roomTabIndex)) return;
-
-    final nextIndex = visibleTabs.first;
-    _tabController.index = nextIndex;
-    if (mounted) {
-      setState(() => _roomTabIndex = nextIndex);
-    }
-  }
 
   Future<void> _navigatePlayback({required bool previous}) async {
     if (_playbackNavigationInFlight || !_canNavigatePlayback) return;
@@ -573,8 +545,6 @@ class _RoomScreenState extends State<RoomScreen>
     );
     _playerVolumePreferences =
         DependencyScope.read<PlayerVolumePreferencesController>(context);
-    _playbackOverlayPreferences =
-        DependencyScope.read<PlaybackOverlayPreferencesController>(context);
     _resourceUrlResolver = DependencyScope.read<ResourceUrlResolver>(context);
     _pictureInPicture = DependencyScope.read<PictureInPictureController>(
       context,
@@ -978,8 +948,6 @@ class _RoomScreenState extends State<RoomScreen>
   void _syncPermissionScopedRoomData() {
     final channel = _channel;
     if (channel == null || _selfMember == null) return;
-
-    _ensureSelectedRoomTabIsVisible();
 
     if (!_canSelectCurrentPlaylistEntries &&
         (_isSelectionMode || _selectedMediaEntryIds.isNotEmpty)) {
@@ -3325,7 +3293,7 @@ class _RoomScreenState extends State<RoomScreen>
   }
 
   void _selectRoomTab(int index) {
-    if (!_visibleRoomTabIndexes.contains(index)) return;
+    if (index < 0 || index >= _roomTabCount) return;
     if (_roomTabIndex == index && _tabController.index == index) return;
     _tabController.index = index;
     if (mounted) {
@@ -3389,7 +3357,6 @@ class _RoomScreenState extends State<RoomScreen>
     return PictureInPicturePlaybackSurface(
       controller: _videoPlayerController,
       danmakuController: _danmakuController,
-      overlayPreferences: _playbackOverlayPreferences,
       emptyState: PlaybackEmptyState(
         error: _roomSessionError ?? _videoError,
         loading: _isVideoLoading,
@@ -3463,10 +3430,6 @@ class _RoomScreenState extends State<RoomScreen>
                         _videoPlayerController!.value.isInitialized
                     ? CustomVideoPlayer(
                         volumePreferences: _playerVolumePreferences,
-                        overlayPreferences: _playbackOverlayPreferences,
-                        p2pMediaPreferences: _canUseP2pMedia
-                            ? widget.p2pMediaPreferences
-                            : null,
                         subtitleSource: DependencyScope.read<SubtitleSource>(
                           context,
                         ),
@@ -3619,14 +3582,12 @@ class _RoomScreenState extends State<RoomScreen>
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.58),
                   ),
                 ),
-                if (_canBrowseLibrary) ...[
-                  const SizedBox(width: 8),
-                  AppIconButton(
-                    onPressed: () => _selectRoomTab(1),
-                    icon: Icons.playlist_play_rounded,
-                    tooltip: context.l10n.playlist,
-                  ),
-                ],
+                const SizedBox(width: 8),
+                AppIconButton(
+                  onPressed: _canBrowseLibrary ? () => _selectRoomTab(1) : null,
+                  icon: Icons.playlist_play_rounded,
+                  tooltip: context.l10n.playlist,
+                ),
                 const SizedBox(width: 4),
                 AppIconButton(
                   onPressed: () => copyRoomInviteLink(context, widget.room),
@@ -3644,22 +3605,14 @@ class _RoomScreenState extends State<RoomScreen>
   }
 
   Widget _buildRoomTabContent() {
-    final visibleTabs = _visibleRoomTabIndexes;
-    if (visibleTabs.isEmpty) return const SizedBox.shrink();
-
-    final selectedIndex = visibleTabs.indexOf(_roomTabIndex);
-    return IndexedStack(
-      index: selectedIndex < 0 ? 0 : selectedIndex,
-      children: [
-        for (final index in visibleTabs)
-          switch (index) {
-            0 => _buildChatTab(),
-            1 => _buildPlaylistTab(),
-            2 => _buildMembersTab(),
-            _ => _buildRealtimeEventsTab(),
-          },
-      ],
-    );
+    final children = [
+      _buildChatTab(),
+      _buildPlaylistTab(),
+      _buildMembersTab(),
+      if (_showRealtimeDebugTab) _buildRealtimeEventsTab(),
+    ];
+    final index = _roomTabIndex.clamp(0, children.length - 1);
+    return IndexedStack(index: index, children: children);
   }
 
   void _handleSync() {
@@ -3941,10 +3894,6 @@ class _RoomScreenState extends State<RoomScreen>
       MaterialPageRoute(
         builder: (context) => CustomVideoPlayer(
           volumePreferences: _playerVolumePreferences,
-          overlayPreferences: _playbackOverlayPreferences,
-          p2pMediaPreferences: _canUseP2pMedia
-              ? widget.p2pMediaPreferences
-              : null,
           subtitleSource: DependencyScope.read<SubtitleSource>(context),
           resourceUrlResolver: _resourceUrlResolver,
           controller: _videoPlayerController!,
@@ -4042,35 +3991,30 @@ class _RoomScreenState extends State<RoomScreen>
   }
 
   Widget _buildTabBar(ThemeData theme) {
-    final visibleTabs = _visibleRoomTabIndexes;
-    if (visibleTabs.isEmpty) return const SizedBox.shrink();
-
     final labels = [
-      for (final index in visibleTabs)
-        switch (index) {
-          0 => context.l10n.chat,
-          1 => context.l10n.playlist,
-          2 => context.l10n.members,
-          _ => context.l10n.realtime,
-        },
+      context.l10n.chat,
+      context.l10n.playlist,
+      context.l10n.members,
+      if (_showRealtimeDebugTab) context.l10n.realtime,
     ];
     final icons = [
-      for (final index in visibleTabs)
-        switch (index) {
-          0 => Icons.chat_bubble_rounded,
-          1 => Icons.playlist_play_rounded,
-          2 => Icons.group_rounded,
-          _ => Icons.bolt_rounded,
-        },
+      Icons.chat_bubble_rounded,
+      Icons.playlist_play_rounded,
+      Icons.group_rounded,
+      if (_showRealtimeDebugTab) Icons.bolt_rounded,
     ];
-    final selectedIndex = visibleTabs.indexOf(_roomTabIndex);
 
     return RoomCollaborationTabBar(
       labels: labels,
       icons: icons,
-      selectedIndex: selectedIndex < 0 ? 0 : selectedIndex,
-      enabled: List.filled(visibleTabs.length, true),
-      onSelected: (index) => _selectRoomTab(visibleTabs[index]),
+      selectedIndex: _roomTabIndex,
+      enabled: [
+        _canViewChatHistory || _canSendChatMessages,
+        _canBrowseLibrary,
+        _canViewMembers,
+        if (_showRealtimeDebugTab) true,
+      ],
+      onSelected: _selectRoomTab,
     );
   }
 

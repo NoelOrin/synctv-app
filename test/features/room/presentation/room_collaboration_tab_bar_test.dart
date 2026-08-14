@@ -50,7 +50,9 @@ void main() {
     expect(selected, [0, 1, 2]);
   });
 
-  testWidgets('disabled collaboration tabs are hidden', (tester) async {
+  testWidgets('disabled collaboration tabs ignore taps across their area', (
+    tester,
+  ) async {
     var selected = 0;
 
     await tester.pumpWidget(
@@ -77,9 +79,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(byAppTooltip('Chat'), findsOneWidget);
-    expect(byAppTooltip('Playlist'), findsNothing);
-    expect(byAppTooltip('Members'), findsOneWidget);
+    await tester.tapAt(const Offset(128, 28));
+    await tester.pump();
+
     expect(selected, 0);
   });
 }

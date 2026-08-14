@@ -22,14 +22,12 @@ import 'package:synctv_app/features/room/data/synctv_room_chat_gateway.dart';
 import 'package:synctv_app/features/room/data/synctv_room_playback_gateway.dart';
 import 'package:synctv_app/features/room/application/playback_mode_preferences_controller.dart';
 import 'package:synctv_app/features/room/application/player_volume_preferences_controller.dart';
-import 'package:synctv_app/features/room/application/playback_overlay_preferences_controller.dart';
 import 'package:synctv_app/features/room/application/realtime_event_log_preferences_controller.dart';
 import 'package:synctv_app/features/room/data/shared_preferences_realtime_event_log_store.dart';
 import 'package:synctv_app/features/room/data/protobuf_room_realtime_protocol.dart';
 import 'package:synctv_app/features/room/data/room_realtime_connection.dart';
 import 'package:synctv_app/features/room/data/shared_preferences_playback_mode_store.dart';
 import 'package:synctv_app/features/room/data/shared_preferences_player_volume_store.dart';
-import 'package:synctv_app/features/room/data/shared_preferences_playback_overlay_store.dart';
 import 'package:synctv_app/features/room/data/synctv_room_session_gateway.dart';
 import 'package:synctv_app/features/room/data/synctv_room_management_gateway.dart';
 import 'package:synctv_app/features/app_shell/data/synctv_resource_url_resolver.dart';
@@ -57,6 +55,7 @@ void main(List<String> args) async {
   }
   await appLocaleController.load();
   await SyncTvService.init();
+  await _applyRuntimeServerOverride();
   if (SyncTvService.activeServer != null) {
     await SyncTvService.syncServerTime();
   }
@@ -73,10 +72,6 @@ void main(List<String> args) async {
     store: const SharedPreferencesPlayerVolumeStore(),
   );
   await playerVolumePreferences.load();
-  final playbackOverlayPreferences = PlaybackOverlayPreferencesController(
-    store: const SharedPreferencesPlaybackOverlayStore(),
-  );
-  await playbackOverlayPreferences.load();
   final realtimeEventLogPreferences = RealtimeEventLogPreferencesController(
     store: const SharedPreferencesRealtimeEventLogStore(),
   );
@@ -138,7 +133,6 @@ void main(List<String> args) async {
     subtitleSource: const HttpSubtitleSource(),
     pictureInPicture: PictureInPictureService.instance,
     playerVolumePreferences: playerVolumePreferences,
-    playbackOverlayPreferences: playbackOverlayPreferences,
     realtimeEventLogPreferences: realtimeEventLogPreferences,
     roomRealtimeChannelFactory: const IoRoomRealtimeChannelFactory(
       sessionGateway: roomSessionGateway,
@@ -153,6 +147,26 @@ void main(List<String> args) async {
     voiceChatSessionFactory: const NativeVoiceChatSessionFactory(),
   );
   runApp(MyApp(dependencies: dependencies));
+}
+
+/// Registers the current page origin as the server on web builds.
+///
+/// The web app is served behind a reverse proxy that forwards `/api` and
+/// `/ws` to a SyncTV backend, so the origin the page was loaded from is a
+/// usable server endpoint. Injecting it at runtime means the app works out of
+/// the box on every deployment: opening a different origin consistently uses
+/// that origin as the server, and accounts, sessions, and cached data stay
+/// isolated per server address. Failures are logged and ignored so startup
+/// never blocks.
+Future<void> _applyRuntimeServerOverride() async {
+  if (!kIsWeb) return;
+  final origin = Uri.base.origin.trim();
+  if (origin.isEmpty) return;
+  try {
+    await SyncTvService.applyServerOverride(origin);
+  } catch (error) {
+    debugPrint('Ignoring runtime server override: $error');
+  }
 }
 
 const _enableAccessibilityTools = bool.fromEnvironment(
