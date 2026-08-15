@@ -93,6 +93,8 @@ class DiscoveryBrowser extends StatefulWidget {
     this.target,
     this.selectionController,
     this.selectionScope,
+    this.onSelectionChanged,
+    this.playlistActionLeading,
   });
 
   final List<DiscoveryBrowserEntry> items;
@@ -109,6 +111,8 @@ class DiscoveryBrowser extends StatefulWidget {
   final ProviderAddTarget? target;
   final DiscoverySelectionController? selectionController;
   final Object? selectionScope;
+  final VoidCallback? onSelectionChanged;
+  final Widget? playlistActionLeading;
 
   @override
   State<DiscoveryBrowser> createState() => _DiscoveryBrowserState();
@@ -146,33 +150,33 @@ class _DiscoveryBrowserState extends State<DiscoveryBrowser> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (widget.items.isNotEmpty || widget.onAddCurrentList != null) ...[
-          _selectionBar(context, target),
-          const AppDivider(height: 1),
-        ],
         Expanded(
           child: widget.items.isEmpty
-              ? LayoutBuilder(
-                  builder: (context, constraints) {
-                    final emptyState = AppEmptyState(
-                      icon: widget.emptyIcon,
-                      title: widget.emptyTitle ?? context.l10n.noItems,
-                      iconSize: 32,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                    );
-                    // A compact dialog can leave only a sliver of the
-                    // preview viewport after its controls and warning banner.
-                    // Let the empty state scroll in that case instead of
-                    // forcing its intrinsic column into a tight height.
-                    if (constraints.maxHeight < 96) {
-                      return AppSingleChildScrollView(child: emptyState);
-                    }
-                    return Center(child: emptyState);
-                  },
-                )
+              ? widget.loading
+                    ? const Center(
+                        child: AppLoadingIndicator(size: AppLoadingSize.md),
+                      )
+                    : LayoutBuilder(
+                        builder: (context, constraints) {
+                          final emptyState = AppEmptyState(
+                            icon: widget.emptyIcon,
+                            title: widget.emptyTitle ?? context.l10n.noItems,
+                            iconSize: 32,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                          );
+                          // A compact dialog can leave only a sliver of the
+                          // preview viewport after its controls and warning banner.
+                          // Let the empty state scroll in that case instead of
+                          // forcing its intrinsic column into a tight height.
+                          if (constraints.maxHeight < 96) {
+                            return AppSingleChildScrollView(child: emptyState);
+                          }
+                          return Center(child: emptyState);
+                        },
+                      )
               : NotificationListener<ScrollNotification>(
                   onNotification: (notification) {
                     if (!widget.loading &&
@@ -185,6 +189,7 @@ class _DiscoveryBrowserState extends State<DiscoveryBrowser> {
                     return false;
                   },
                   child: AppListView.separated(
+                    primary: true,
                     itemCount: widget.items.length + (widget.hasMore ? 1 : 0),
                     separatorBuilder: (_, _) => const AppDivider(height: 1),
                     itemBuilder: (context, index) {
@@ -199,6 +204,10 @@ class _DiscoveryBrowserState extends State<DiscoveryBrowser> {
                   ),
                 ),
         ),
+        if (widget.items.isNotEmpty || widget.onAddCurrentList != null) ...[
+          const AppDivider(height: 1),
+          _selectionBar(context, target),
+        ],
       ],
     );
   }
@@ -245,16 +254,21 @@ class _DiscoveryBrowserState extends State<DiscoveryBrowser> {
               },
             )
           else if (widget.onAddCurrentList != null)
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton.tonalIcon(
-                key: const Key('discovery-add-current-list'),
-                onPressed: widget.loading ? null : widget.onAddCurrentList,
-                icon: const Icon(Icons.playlist_add_rounded),
-                label: Text(
-                  widget.currentListLabel ?? context.l10n.addCurrentList,
+            Row(
+              children: [
+                if (widget.playlistActionLeading case final leading?) ...[
+                  Expanded(child: leading),
+                  const SizedBox(width: 8),
+                ],
+                FilledButton.tonalIcon(
+                  key: const Key('discovery-add-current-list'),
+                  onPressed: widget.loading ? null : widget.onAddCurrentList,
+                  icon: const Icon(Icons.playlist_add_rounded),
+                  label: Text(
+                    widget.currentListLabel ?? context.l10n.addCurrentList,
+                  ),
                 ),
-              ),
+              ],
             ),
         ],
       ),
@@ -277,6 +291,7 @@ class _DiscoveryBrowserState extends State<DiscoveryBrowser> {
               ? null
               : () => setState(() {
                   _selection.selectAll(widget.items);
+                  widget.onSelectionChanged?.call();
                 }),
           icon: const Icon(Icons.select_all_rounded),
           label: Text(context.l10n.selectAll),
@@ -285,7 +300,10 @@ class _DiscoveryBrowserState extends State<DiscoveryBrowser> {
           key: const Key('discovery-clear-selection'),
           onPressed: widget.loading || _selection.isEmpty
               ? null
-              : () => setState(_selection.clear),
+              : () => setState(() {
+                  _selection.clear();
+                  widget.onSelectionChanged?.call();
+                }),
           icon: const Icon(Icons.deselect_rounded),
           label: Text(context.l10n.clear),
         ),
@@ -405,6 +423,9 @@ class _DiscoveryBrowserState extends State<DiscoveryBrowser> {
   }
 
   void _toggle(DiscoveryBrowserEntry item) {
-    setState(() => _selection.toggle(item));
+    setState(() {
+      _selection.toggle(item);
+      widget.onSelectionChanged?.call();
+    });
   }
 }

@@ -199,8 +199,7 @@ class _ServerSettingsSheetState extends State<_ServerSettingsSheet> {
                       ),
                     ),
                   ),
-                  SizedBox(
-                    height: 40,
+                  Flexible(
                     child: AppActionButton(
                       onPressed: _busy ? null : _openAddServerDialog,
                       icon: Icons.add_link_rounded,
@@ -208,8 +207,7 @@ class _ServerSettingsSheetState extends State<_ServerSettingsSheet> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  SizedBox(
-                    height: 40,
+                  Flexible(
                     child: AppActionButton(
                       onPressed: widget.requireServer && activeServer == null
                           ? null

@@ -62,6 +62,7 @@ import 'package:synctv_app/features/room/presentation/widgets/playback_diagnosti
 import 'package:synctv_app/features/room/presentation/widgets/playback_empty_state.dart';
 import 'package:synctv_app/features/room/presentation/widgets/playback_options_control.dart';
 import 'package:synctv_app/features/room/presentation/widgets/playlist_empty_state.dart';
+import 'package:synctv_app/features/room/presentation/widgets/playlist_search_field.dart';
 import 'package:synctv_app/features/room/presentation/widgets/free_mode_settings_fields.dart';
 import 'package:synctv_app/features/media_p2p/presentation/p2p_media_settings_fields.dart';
 import 'package:synctv_app/features/room_invite/presentation/room_invite_actions.dart';
@@ -371,6 +372,8 @@ class _RoomScreenState extends State<RoomScreen>
   int _mentionCandidatePage = 0;
   bool _mentionCandidatesHasMore = true;
   List<RoomMediaEntry> _mediaEntries = [];
+  late final TextEditingController _mediaSearchController;
+  bool _mediaSupportsSearch = true;
   bool _isLoadingMediaEntries = true;
   bool _isVideoLoading = false;
   bool get _playbackNavigationInFlight =>
@@ -380,6 +383,7 @@ class _RoomScreenState extends State<RoomScreen>
   late final PictureInPictureController _pictureInPicture;
   bool _pictureInPictureAvailable = false;
   bool _fullScreenRouteOpen = false;
+  final ValueNotifier<int> _videoPresentationRevision = ValueNotifier<int>(0);
   String? _videoError;
   String? _roomSessionError;
 
@@ -391,6 +395,7 @@ class _RoomScreenState extends State<RoomScreen>
   bool _hasMoreMediaEntries = true;
   bool _isLoadingMoreMediaEntries = false;
   bool _isRefreshingMediaEntries = false;
+  final AsyncStateEpoch _mediaLibraryStateEpoch = AsyncStateEpoch();
   final ScrollController _mediaEntryScrollController = ScrollController();
 
   // Playlist navigation
@@ -525,6 +530,7 @@ class _RoomScreenState extends State<RoomScreen>
   @override
   void initState() {
     super.initState();
+    _mediaSearchController = TextEditingController();
     _chatGateway = DependencyScope.read<RoomChatGateway>(context);
     _playbackGateway = DependencyScope.read<RoomPlaybackGateway>(context);
     _playbackController = RoomPlaybackController();
@@ -965,6 +971,7 @@ class _RoomScreenState extends State<RoomScreen>
         );
       }
     } else {
+      _invalidateMediaLibraryRequests();
       if (_playlistItemsObserved) {
         _sendRealtimeMessage(
           _realtimeProtocol.encodeUnobserveResource('playlist_items'),
@@ -1134,60 +1141,73 @@ class _RoomScreenState extends State<RoomScreen>
   void _onMediaEntryScroll() {
     if (_mediaEntryScrollController.position.pixels >=
         _mediaEntryScrollController.position.maxScrollExtent - 200) {
-      if (!_isLoadingMoreMediaEntries && _hasMoreMediaEntries) {
+      if (!_isLoadingMediaEntries &&
+          !_isLoadingMoreMediaEntries &&
+          !_isRefreshingMediaEntries &&
+          _hasMoreMediaEntries) {
         _loadMoreMediaEntries();
       }
     }
   }
 
   Future<void> _loadMoreMediaEntries() async {
-    if (_isLoadingMoreMediaEntries) return;
+    if (_isLoadingMediaEntries ||
+        _isLoadingMoreMediaEntries ||
+        _isRefreshingMediaEntries ||
+        !_hasMoreMediaEntries) {
+      return;
+    }
+
+    final requestEpoch = _mediaLibraryStateEpoch.capture();
+    final parentPlaylist = _playlistStack.isNotEmpty
+        ? _playlistStack.last
+        : null;
+    final requestedPage = _currentPage + 1;
+    final requestedCursor = _usesCursorPagination ? _nextCursor : null;
+    final requestedSearch = _mediaSearchController.text.trim();
 
     setState(() {
       _isLoadingMoreMediaEntries = true;
     });
 
     try {
-      final parentPlaylist = _playlistStack.isNotEmpty
-          ? _playlistStack.last
-          : null;
       final result = await _mediaLibraryGateway.listMediaLibrary(
         widget.room.roomId,
         playlistId: parentPlaylist?.playbackPlaylistId ?? '',
         target: parentPlaylist?.playbackTarget,
-        page: _currentPage + 1,
-        cursor: _usesCursorPagination ? _nextCursor : null,
+        page: requestedPage,
+        cursor: requestedCursor,
         pageSize: _pageSize,
+        search: requestedSearch,
       );
 
       final entries = result.entries;
       final total = result.total;
 
-      if (mounted) {
-        setState(() {
-          if (entries.isNotEmpty) {
-            _mediaEntries.addAll(entries);
-            _usesCursorPagination = result.usesCursor;
-            _nextCursor = result.nextCursor;
-            _currentPage = result.page;
-            _hasMoreMediaEntries = result.usesCursor
-                ? result.nextCursor.isNotEmpty
-                : total != null && _mediaEntries.length < total;
-          } else {
-            _hasMoreMediaEntries = false;
-          }
-          _isLoadingMoreMediaEntries = false;
-        });
-      }
+      if (!mounted || !_mediaLibraryStateEpoch.isCurrent(requestEpoch)) return;
+      setState(() {
+        if (entries.isNotEmpty) {
+          _mediaEntries.addAll(entries);
+          _usesCursorPagination = result.usesCursor;
+          _nextCursor = result.nextCursor;
+          _currentPage = result.page;
+          _mediaSupportsSearch = result.supportsSearch;
+          _hasMoreMediaEntries = result.usesCursor
+              ? result.nextCursor.isNotEmpty
+              : total != null && _mediaEntries.length < total;
+        } else {
+          _hasMoreMediaEntries = false;
+        }
+        _isLoadingMoreMediaEntries = false;
+      });
     } catch (e) {
       debugPrint('Load more media entries error: $e');
-      if (mounted) {
-        setState(() {
-          _isLoadingMoreMediaEntries = false;
-          _hasMoreMediaEntries = false;
-        });
-        AppNotifications.showError(context, context.l10n.errorMessage('$e'));
-      }
+      if (!mounted || !_mediaLibraryStateEpoch.isCurrent(requestEpoch)) return;
+      setState(() {
+        _isLoadingMoreMediaEntries = false;
+        _hasMoreMediaEntries = false;
+      });
+      AppNotifications.showError(context, context.l10n.errorMessage('$e'));
     }
   }
 
@@ -1554,6 +1574,7 @@ class _RoomScreenState extends State<RoomScreen>
         return;
       }
       if (message.resourceObserveId == 'playlist_items' && mounted) {
+        _invalidateMediaLibraryRequests();
         setState(() {
           _mediaEntries = const [];
           _currentPage = 1;
@@ -1900,6 +1921,7 @@ class _RoomScreenState extends State<RoomScreen>
     }
     setState(() {
       _mediaEntries = mediaLibrary.entries;
+      _mediaSupportsSearch = mediaLibrary.supportsSearch;
       _mediaEntriesScopeKey = _selectionObservationScopeKey;
       _currentPage = mediaLibrary.page;
       _usesCursorPagination = mediaLibrary.usesCursor;
@@ -2972,6 +2994,7 @@ class _RoomScreenState extends State<RoomScreen>
       }
 
       _videoPlayerController = newController;
+      _videoPresentationRevision.value++;
       _videoPlayerSourceKey = sourceKey;
       _videoPlayerSourceExpireAt = sourceExpireAt;
       _videoPlaybackHasProgress = false;
@@ -3201,6 +3224,7 @@ class _RoomScreenState extends State<RoomScreen>
     _adaptiveVideoTracksSubscription = null;
     _adaptiveVideoTracks = const AdaptiveVideoTrackSnapshot();
     _videoPlayerController = null;
+    _videoPresentationRevision.value++;
     _videoPlayerSourceKey = null;
     _videoPlayerSourceExpireAt = null;
     _videoPlaybackHasProgress = false;
@@ -3235,6 +3259,7 @@ class _RoomScreenState extends State<RoomScreen>
     _adaptiveVideoTracksSubscription = null;
     _adaptiveVideoTracks = const AdaptiveVideoTrackSnapshot();
     _videoPlayerController = null;
+    _videoPresentationRevision.value++;
     _videoPlayerSourceKey = null;
     _videoPlayerSourceExpireAt = null;
     _videoPlaybackHasProgress = false;
@@ -3256,9 +3281,8 @@ class _RoomScreenState extends State<RoomScreen>
     _tabController.removeListener(_handleRoomTabChanged);
     _authErrorSubscription?.cancel();
     _realtimeSubscription?.cancel();
-    unawaited(_adaptiveVideoTracksSubscription?.cancel());
+    _disposeVideoControllerImmediately();
     _tabController.dispose();
-    unawaited(_disposeVideoController());
     unawaited(_pictureInPicture.exit());
     _syncTimer?.cancel();
     _diagnosticsTimer?.cancel();
@@ -3266,6 +3290,7 @@ class _RoomScreenState extends State<RoomScreen>
     _reconnectTimer?.cancel();
     unawaited(_channel?.close());
     _messageController.dispose();
+    _mediaSearchController.dispose();
     _chatScrollController.dispose();
     _mediaEntryScrollController.dispose();
     unawaited(_voiceChatManager?.dispose());
@@ -3276,6 +3301,7 @@ class _RoomScreenState extends State<RoomScreen>
       unawaited(_p2pEngineOperations.run(p2pEngine.dispose));
     }
     _danmakuController.dispose();
+    _videoPresentationRevision.dispose();
     _playbackController.dispose();
     _channel = null;
     _realtimeMessageBus.close();
@@ -3892,76 +3918,90 @@ class _RoomScreenState extends State<RoomScreen>
     _fullScreenRouteOpen = true;
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => CustomVideoPlayer(
-          volumePreferences: _playerVolumePreferences,
-          subtitleSource: DependencyScope.read<SubtitleSource>(context),
-          resourceUrlResolver: _resourceUrlResolver,
-          controller: _videoPlayerController!,
-          title: _currentStatus?.entry?.name ?? context.l10n.unknownVideo,
-          danmakuController: _danmakuController,
-          subtitles: _currentStatus?.entry?.subtitles,
-          playbackResourceIdentity:
-              _currentStatus?.entry?.playbackAttachmentIdentity ?? '',
-          resolveSubtitleResource: _resolveSubtitlePlaybackResource,
-          onSubtitleP2pDeactivated: _deactivateP2pSubtitle,
-          isLive: _currentStatus?.entry?.live == true,
-          liveStartedAt: _currentStatus?.entry?.liveStartedAt,
-          onToggleFullScreen: () => Navigator.of(context).pop(),
-          onSync: _handleSync,
-          onPrevious: _canNavigatePlayback
-              ? () => unawaited(_navigatePlayback(previous: true))
-              : null,
-          onNext: _canNavigatePlayback
-              ? () => unawaited(_navigatePlayback(previous: false))
-              : null,
-          onEnterPictureInPicture: _pictureInPictureAvailable
-              ? () => unawaited(_enterPictureInPicture())
-              : null,
-          freeModeEnabled: _playbackModeConfig.freeModeEnabled,
-          onFreeModeChanged: (enabled) =>
-              unawaited(_setFreeModeEnabled(enabled)),
-          canControlPlayback: _canControlPlaybackState,
-          isPlaybackExpectedToBePlaying: () =>
-              _currentStatus?.isPlaying == true,
-          onUserPlaybackStateChanged: _canControlPlaybackState
-              ? _handleUserPlaybackStateChanged
-              : null,
-          onUserSeek: _canControlPlaybackState ? _handleUserSeek : null,
-          onUserPlaybackSpeedChanged: _canControlPlaybackState
-              ? _handleUserPlaybackSpeedChanged
-              : null,
-          diagnosticsProvider: _playbackDiagnosticsContext,
-          loopPlayback:
-              _roomSettings.autoPlayEnabled &&
-              _roomSettings.autoPlayMode ==
-                  client_enum.PlayMode.PLAY_MODE_REPEAT_ONE,
-          shufflePlayback:
-              _roomSettings.autoPlayEnabled &&
-              _roomSettings.autoPlayMode ==
-                  client_enum.PlayMode.PLAY_MODE_SHUFFLE,
-          canChangePlayMode: _canManagePlaybackMode && !_playModeUpdateInFlight,
-          onLoopPlaybackChanged: (enabled) => _updateRoomPlaybackMode(
-            enabled
-                ? client_enum.PlayMode.PLAY_MODE_REPEAT_ONE
-                : client_enum.PlayMode.PLAY_MODE_SEQUENTIAL,
-          ),
-          onShufflePlaybackChanged: (enabled) => _updateRoomPlaybackMode(
-            enabled
-                ? client_enum.PlayMode.PLAY_MODE_SHUFFLE
-                : client_enum.PlayMode.PLAY_MODE_SEQUENTIAL,
-          ),
-          onReloadPlayback: () => unawaited(_reloadCurrentPlaybackUrl()),
-          onSendDanmaku: _sendDanmaku,
-          isFullScreen: true,
-          interactionMode: videoPlayerInteractionModeForPlatform(
-            defaultTargetPlatform,
-          ),
-          diagnosticsBuilder: (_) => _buildPlaybackDiagnosticsBadges(
-            compact: true,
-            includeLatency: true,
-            videoStyle: true,
-          ),
-          extraBottomWidget: _buildPlaybackOptionButton(compact: true),
+        builder: (context) => ValueListenableBuilder<int>(
+          valueListenable: _videoPresentationRevision,
+          builder: (context, _, child) {
+            final controller = _videoPlayerController;
+            if (controller == null || !controller.value.isInitialized) {
+              return Scaffold(
+                backgroundColor: Colors.black,
+                body: Center(child: _buildVideoEmptyState()),
+              );
+            }
+            return CustomVideoPlayer(
+              key: ValueKey(controller),
+              volumePreferences: _playerVolumePreferences,
+              subtitleSource: DependencyScope.read<SubtitleSource>(context),
+              resourceUrlResolver: _resourceUrlResolver,
+              controller: controller,
+              title: _currentStatus?.entry?.name ?? context.l10n.unknownVideo,
+              danmakuController: _danmakuController,
+              subtitles: _currentStatus?.entry?.subtitles,
+              playbackResourceIdentity:
+                  _currentStatus?.entry?.playbackAttachmentIdentity ?? '',
+              resolveSubtitleResource: _resolveSubtitlePlaybackResource,
+              onSubtitleP2pDeactivated: _deactivateP2pSubtitle,
+              isLive: _currentStatus?.entry?.live == true,
+              liveStartedAt: _currentStatus?.entry?.liveStartedAt,
+              onToggleFullScreen: () => Navigator.of(context).pop(),
+              onSync: _handleSync,
+              onPrevious: _canNavigatePlayback
+                  ? () => unawaited(_navigatePlayback(previous: true))
+                  : null,
+              onNext: _canNavigatePlayback
+                  ? () => unawaited(_navigatePlayback(previous: false))
+                  : null,
+              onEnterPictureInPicture: _pictureInPictureAvailable
+                  ? () => unawaited(_enterPictureInPicture())
+                  : null,
+              freeModeEnabled: _playbackModeConfig.freeModeEnabled,
+              onFreeModeChanged: (enabled) =>
+                  unawaited(_setFreeModeEnabled(enabled)),
+              canControlPlayback: _canControlPlaybackState,
+              isPlaybackExpectedToBePlaying: () =>
+                  _currentStatus?.isPlaying == true,
+              onUserPlaybackStateChanged: _canControlPlaybackState
+                  ? _handleUserPlaybackStateChanged
+                  : null,
+              onUserSeek: _canControlPlaybackState ? _handleUserSeek : null,
+              onUserPlaybackSpeedChanged: _canControlPlaybackState
+                  ? _handleUserPlaybackSpeedChanged
+                  : null,
+              diagnosticsProvider: _playbackDiagnosticsContext,
+              loopPlayback:
+                  _roomSettings.autoPlayEnabled &&
+                  _roomSettings.autoPlayMode ==
+                      client_enum.PlayMode.PLAY_MODE_REPEAT_ONE,
+              shufflePlayback:
+                  _roomSettings.autoPlayEnabled &&
+                  _roomSettings.autoPlayMode ==
+                      client_enum.PlayMode.PLAY_MODE_SHUFFLE,
+              canChangePlayMode:
+                  _canManagePlaybackMode && !_playModeUpdateInFlight,
+              onLoopPlaybackChanged: (enabled) => _updateRoomPlaybackMode(
+                enabled
+                    ? client_enum.PlayMode.PLAY_MODE_REPEAT_ONE
+                    : client_enum.PlayMode.PLAY_MODE_SEQUENTIAL,
+              ),
+              onShufflePlaybackChanged: (enabled) => _updateRoomPlaybackMode(
+                enabled
+                    ? client_enum.PlayMode.PLAY_MODE_SHUFFLE
+                    : client_enum.PlayMode.PLAY_MODE_SEQUENTIAL,
+              ),
+              onReloadPlayback: () => unawaited(_reloadCurrentPlaybackUrl()),
+              onSendDanmaku: _sendDanmaku,
+              isFullScreen: true,
+              interactionMode: videoPlayerInteractionModeForPlatform(
+                defaultTargetPlatform,
+              ),
+              diagnosticsBuilder: (_) => _buildPlaybackDiagnosticsBadges(
+                compact: true,
+                includeLatency: true,
+                videoStyle: true,
+              ),
+              extraBottomWidget: _buildPlaybackOptionButton(compact: true),
+            );
+          },
         ),
       ),
     );
@@ -5786,6 +5826,15 @@ class _RoomScreenState extends State<RoomScreen>
               ),
               const SizedBox(height: 6),
               _buildPlaylistBreadcrumbs(),
+              if (_mediaSupportsSearch || !_isInsideProviderTargetScope) ...[
+                const SizedBox(height: 8),
+                PlaylistSearchField(
+                  key: const Key('playlist-search-field'),
+                  controller: _mediaSearchController,
+                  label: context.l10n.searchMediaOrPlaylist,
+                  onSearch: _submitMediaSearch,
+                ),
+              ],
             ],
           ),
         ),
@@ -6753,9 +6802,11 @@ class _RoomScreenState extends State<RoomScreen>
   }
 
   void _enterPlaylist(RoomMediaEntry playlist) {
+    _invalidateMediaLibraryRequests();
     setState(() {
       _playlistStack.add(playlist);
       _playlistNameStack.add(playlist.name);
+      _mediaSearchController.clear();
       _isLoadingMediaEntries = true;
     });
     _observeCurrentPlaylist();
@@ -6763,9 +6814,11 @@ class _RoomScreenState extends State<RoomScreen>
 
   void _exitPlaylist() {
     if (_playlistStack.isEmpty) return;
+    _invalidateMediaLibraryRequests();
     setState(() {
       _playlistStack.removeLast();
       _playlistNameStack.removeLast();
+      _mediaSearchController.clear();
       _isLoadingMediaEntries = true;
     });
     _observeCurrentPlaylist();
@@ -6775,9 +6828,11 @@ class _RoomScreenState extends State<RoomScreen>
     if (depth < 0 || depth >= _playlistStack.length) {
       if (depth != 0 || _playlistStack.isEmpty) return;
     }
+    _invalidateMediaLibraryRequests();
     setState(() {
       _playlistStack.removeRange(depth, _playlistStack.length);
       _playlistNameStack.removeRange(depth + 1, _playlistNameStack.length);
+      _mediaSearchController.clear();
       _isLoadingMediaEntries = true;
     });
     _observeCurrentPlaylist();
@@ -6795,6 +6850,7 @@ class _RoomScreenState extends State<RoomScreen>
         _realtimeProtocol.encodePlaylistObservation(
           playlistId: parentPlaylist?.playbackPlaylistId ?? '',
           target: parentPlaylist?.playbackTarget,
+          search: _mediaSearchController.text.trim(),
           page: 1,
           pageSize: _pageSize,
         ),
@@ -6812,6 +6868,8 @@ class _RoomScreenState extends State<RoomScreen>
 
   Future<void> _refreshCurrentPlaylist() async {
     if (_isRefreshingMediaEntries) return;
+    _invalidateMediaLibraryRequests();
+    final requestEpoch = _mediaLibraryStateEpoch.capture();
     final playlist = _playlistStack.isEmpty ? null : _playlistStack.last;
     setState(() => _isRefreshingMediaEntries = true);
     try {
@@ -6819,20 +6877,51 @@ class _RoomScreenState extends State<RoomScreen>
         widget.room.roomId,
         playlistId: playlist?.playbackPlaylistId ?? '',
         target: playlist?.playbackTarget,
+        search: _mediaSearchController.text.trim(),
         pageSize: _pageSize,
         refresh: _isInsideProviderTargetScope,
       );
+      if (!mounted || !_mediaLibraryStateEpoch.isCurrent(requestEpoch)) return;
       _applyMediaLibrary(mediaLibrary);
     } catch (error) {
-      if (mounted) {
-        AppNotifications.showError(
-          context,
-          context.l10n.errorMessage('$error'),
-        );
-      }
+      if (!mounted || !_mediaLibraryStateEpoch.isCurrent(requestEpoch)) return;
+      AppNotifications.showError(context, context.l10n.errorMessage('$error'));
     } finally {
-      if (mounted) setState(() => _isRefreshingMediaEntries = false);
+      if (mounted && _mediaLibraryStateEpoch.isCurrent(requestEpoch)) {
+        setState(() => _isRefreshingMediaEntries = false);
+      }
     }
+  }
+
+  void _submitMediaSearch() {
+    _invalidateMediaLibraryRequests();
+    setState(() {
+      _currentPage = 1;
+      _nextCursor = '';
+      _usesCursorPagination = false;
+      _hasMoreMediaEntries = false;
+      _mediaEntries = const [];
+      _isLoadingMediaEntries = true;
+    });
+    _sendRealtimeMessage(
+      _realtimeProtocol.encodePlaylistObservation(
+        playlistId: _playlistStack.isEmpty
+            ? ''
+            : _playlistStack.last.playbackPlaylistId,
+        target: _playlistStack.isEmpty
+            ? null
+            : _playlistStack.last.playbackTarget,
+        page: 1,
+        pageSize: _pageSize,
+        search: _mediaSearchController.text.trim(),
+      ),
+    );
+  }
+
+  void _invalidateMediaLibraryRequests() {
+    _mediaLibraryStateEpoch.advance();
+    _isLoadingMoreMediaEntries = false;
+    _isRefreshingMediaEntries = false;
   }
 
   Future<void> _switchMedia(RoomMediaEntry entry) async {
