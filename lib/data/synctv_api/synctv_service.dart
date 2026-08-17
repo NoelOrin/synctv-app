@@ -1086,6 +1086,10 @@ class SyncTvService {
     source_enum.RtmpStreamMode mode,
   ) => _domains.providers.prepareRtmp(mode);
 
+  static Future<provider_common.PlaybackProxyPolicy> resolvePlaybackProxyPolicy(
+    provider_common.DiscoveredSource source,
+  ) => _domains.providers.resolvePlaybackProxyPolicy(source);
+
   static Future<RoomPlaylistItem> updatePlaylist(
     String roomId,
     String playlistId, {
@@ -1164,12 +1168,14 @@ class SyncTvService {
     String mediaId, {
     required String name,
     String? description,
+    source_enum.PlaybackProxyMode? playbackProxyMode,
   }) async {
     return _domains.roomMedia.editMedia(
       roomId,
       mediaId,
       name: name,
       description: description,
+      playbackProxyMode: playbackProxyMode,
     );
   }
 

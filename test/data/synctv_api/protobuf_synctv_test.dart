@@ -934,6 +934,9 @@ void main() {
         client.PlaybackContainer.PLAYBACK_CONTAINER_MKV,
         client.PlaybackContainer.PLAYBACK_CONTAINER_WEBM,
       ]);
+      expect(profile.supportedLiveTransports, [
+        client.PlaybackLiveTransport.PLAYBACK_LIVE_TRANSPORT_FLV,
+      ]);
       expect(
         profile.audioCapability,
         client.PlaybackAudioCapability.PLAYBACK_AUDIO_CAPABILITY_STEREO,
@@ -5000,6 +5003,10 @@ void main() {
       );
       expect(
         requestedUri!.queryParameters,
+        containsPair('liveTransports', '2'),
+      );
+      expect(
+        requestedUri!.queryParameters,
         containsPair(
           'audioCapability',
           client_enum
@@ -6965,6 +6972,11 @@ void main() {
         false,
       );
       await SyncTvService.runtimeUpdateSettingInSection(
+        'roomCreation',
+        'passwordPolicy',
+        'ROOM_PASSWORD_POLICY_FORBIDDEN',
+      );
+      await SyncTvService.runtimeUpdateSettingInSection(
         'cors',
         'allowedOrigins',
         ['https://app.example.test'],
@@ -7025,6 +7037,12 @@ void main() {
           'roomCreation': {'enabled': false},
         },
         'updateMask': 'roomCreation.enabled',
+      },
+      {
+        'settings': {
+          'roomCreation': {'passwordPolicy': 3},
+        },
+        'updateMask': 'roomCreation.passwordPolicy',
       },
       {
         'settings': {

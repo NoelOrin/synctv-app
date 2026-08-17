@@ -20,8 +20,10 @@ typedef P2pPieceRequester =
     );
 typedef P2pIntegrityReporter =
     Future<void> Function(P2pPeerSource source, bool valid);
+typedef P2pPeerAvailability = bool Function(String swarmId);
 
 Future<void> _ignorePeerIntegrity(P2pPeerSource source, bool valid) async {}
+bool _alwaysHasPeer(String swarmId) => true;
 
 enum _P2pManifestKind { progressive, hls, dash }
 
@@ -47,6 +49,7 @@ class P2pMediaEngine implements P2pMediaPlaybackEngine {
   P2pMediaEngine({
     required this.requestPeerPiece,
     this.reportPeerIntegrity = _ignorePeerIntegrity,
+    this.hasConnectedPeer = _alwaysHasPeer,
     this.maxCacheBytes = 128 * 1024 * 1024,
     this.persistentCache,
     Duration? cacheTtl,
@@ -60,6 +63,7 @@ class P2pMediaEngine implements P2pMediaPlaybackEngine {
     this.originBodySlowObservation = const Duration(seconds: 2),
     this.originBodyHedgeDelay = const Duration(seconds: 5),
     this.originBodyMinimumRateBytesPerSecond = 256 * 1024,
+    this.progressiveOriginPeerRecoveryTimeout = const Duration(seconds: 2),
     this.securityMode = P2pMediaSecurityMode.standard,
     this.originSampleRate = 0.10,
   }) : cacheTtl =
@@ -73,6 +77,7 @@ class P2pMediaEngine implements P2pMediaPlaybackEngine {
     assert(this.cacheTtl > Duration.zero);
     assert(originHeaderTimeout > Duration.zero);
     assert(originHeaderPeerRecoveryTimeout > Duration.zero);
+    assert(progressiveOriginPeerRecoveryTimeout > Duration.zero);
     assert(originSampleRate >= 0 && originSampleRate <= 1);
     assert(originBodyMinimumRateBytesPerSecond > 0);
     _httpClient.connectionTimeout = const Duration(seconds: 10);
@@ -83,11 +88,16 @@ class P2pMediaEngine implements P2pMediaPlaybackEngine {
   static const int _maxManifestBytes = 4 * 1024 * 1024;
   static const int _progressivePrefetchWindow = 2;
   static const int _maxPeerPrefetches = 2;
+  static const int _progressiveOriginAttempts = 3;
+  static const Duration _progressiveOriginRetryDelay = Duration(
+    milliseconds: 200,
+  );
   static const int _maxResourceMappings = 8192;
   static const Duration _resourceIdleTtl = Duration(minutes: 30);
 
   final P2pPieceRequester requestPeerPiece;
   final P2pIntegrityReporter reportPeerIntegrity;
+  final P2pPeerAvailability hasConnectedPeer;
   @override
   final int maxCacheBytes;
   final P2pMediaPersistentCache? persistentCache;
@@ -101,6 +111,7 @@ class P2pMediaEngine implements P2pMediaPlaybackEngine {
   final Duration originBodySlowObservation;
   final Duration originBodyHedgeDelay;
   final int originBodyMinimumRateBytesPerSecond;
+  final Duration progressiveOriginPeerRecoveryTimeout;
   @override
   final P2pMediaSecurityMode securityMode;
   final double originSampleRate;
@@ -235,7 +246,16 @@ class P2pMediaEngine implements P2pMediaPlaybackEngine {
           } on StateError {
             // The response already started; closing terminates the failed stream.
           }
-          await request.response.close();
+          try {
+            await _closeResponseIgnoringContentLengthShortfall(
+              request.response,
+            );
+          } catch (closeError, closeStackTrace) {
+            debugPrint(
+              'P2P media gateway response close failed: '
+              '$closeError\n$closeStackTrace',
+            );
+          }
         }
       }),
     );
@@ -278,7 +298,14 @@ class P2pMediaEngine implements P2pMediaPlaybackEngine {
         await _writeRangeNotSatisfiable(request, totalLength);
         return;
       }
-      if (resource.logicalKey == 'root') {
+      if (requested!.isOpenEnded) {
+        await _serveProgressiveBody(
+          request,
+          resource,
+          totalLength,
+          range: range,
+        );
+      } else if (resource.logicalKey == 'root') {
         await _serveProgressiveRange(
           request,
           resource,
@@ -666,17 +693,62 @@ class P2pMediaEngine implements P2pMediaPlaybackEngine {
   Future<void> _serveProgressiveBody(
     HttpRequest request,
     _GatewayResource resource,
-    int totalLength,
-  ) async {
-    request.response.statusCode = HttpStatus.ok;
-    request.response.headers.contentLength = totalLength;
-    request.response.headers.contentType = _contentTypeFor(resource.upstream);
+    int totalLength, {
+    _ByteRange? range,
+  }) async {
+    final outputRange = range ?? _ByteRange(0, totalLength - 1);
+    if (range != null &&
+        resource.originAcceptsRanges == false &&
+        totalLength <= _maxWholeResourceBytes) {
+      await _serveSmallProgressiveRange(
+        request,
+        resource,
+        outputRange,
+        totalLength: totalLength,
+      );
+      return;
+    }
+    var successResponseConfigured = false;
+    void configureSuccessResponse() {
+      if (successResponseConfigured) return;
+      successResponseConfigured = true;
+      request.response.statusCode = range == null
+          ? HttpStatus.ok
+          : HttpStatus.partialContent;
+      request.response.headers.contentLength = outputRange.length;
+      request.response.headers.contentType = _contentTypeFor(resource.upstream);
+      request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      if (range != null) {
+        request.response.headers.set(
+          HttpHeaders.contentRangeHeader,
+          'bytes ${outputRange.start}-${outputRange.end}/$totalLength',
+        );
+      }
+    }
+
+    Future<void> closeFailedResponse() async {
+      if (successResponseConfigured) {
+        await _closeResponseIgnoringContentLengthShortfall(request.response);
+        return;
+      }
+      request.response.statusCode = HttpStatus.badGateway;
+      request.response.headers.contentLength = 0;
+      await request.response.close();
+    }
+
     if (request.method == 'HEAD') {
+      configureSuccessResponse();
       await request.response.close();
       return;
     }
 
-    for (var start = 0; start < totalLength; start += progressivePieceSize) {
+    final firstPieceStart =
+        (outputRange.start ~/ progressivePieceSize) * progressivePieceSize;
+    for (
+      var start = firstPieceStart;
+      start <= outputRange.end;
+      start += progressivePieceSize
+    ) {
       final pieceIndex = start ~/ progressivePieceSize;
       final pieceKey = '${resource.logicalKey}:piece:$pieceIndex';
       final loadKey = _cacheKey(resource.swarmId, pieceKey);
@@ -708,61 +780,104 @@ class P2pMediaEngine implements P2pMediaPlaybackEngine {
       }
       if (bytes == null) {
         final end = min(start + progressivePieceSize, totalLength) - 1;
-        final opened = await _openOriginWithPeerRetry(
-          resource,
-          pieceKey,
-          rangeHeader: 'bytes=$start-$end',
-          expectedPeerLength: end - start + 1,
-          pendingPeerPrefetch: pendingPrefetch,
-        );
-        if (opened?.peerBytes case final peerBytes?) {
-          bytes = peerBytes;
-        } else {
-          final origin = opened?.origin;
-          if (origin == null) {
-            await request.response.close();
-            return;
-          }
-          if (origin.statusCode == HttpStatus.ok) {
-            await _streamCompleteOriginFromOffset(
-              request,
-              resource,
-              origin,
-              outputOffset: start,
-            );
-            await request.response.close();
-            return;
-          }
-          if (origin.statusCode != HttpStatus.partialContent) {
-            await origin.drain<void>();
-            await request.response.close();
-            return;
-          }
-          bytes = await _readOriginWithPeerRetry(
+        final rangeHeader = 'bytes=$start-$end';
+        for (
+          var attempt = 0;
+          attempt < _progressiveOriginAttempts && bytes == null;
+          attempt++
+        ) {
+          final opened = await _openOriginWithPeerRetry(
             resource,
             pieceKey,
-            origin,
-            rangeHeader: 'bytes=$start-$end',
+            rangeHeader: rangeHeader,
             expectedPeerLength: end - start + 1,
-            requestedRange: _ByteRange(start, end),
+            pendingPeerPrefetch: attempt == 0 ? pendingPrefetch : null,
           );
-          if (bytes == null) {
-            await request.response.close();
-            return;
+          if (opened?.peerBytes case final peerBytes?) {
+            bytes = peerBytes;
+          } else if (opened?.origin case final origin?) {
+            if (origin.statusCode == HttpStatus.ok) {
+              final wroteOutput = await _streamCompleteOriginFromOffset(
+                request,
+                resource,
+                origin,
+                outputOffset: max(start, outputRange.start),
+                beforeFirstOutput: configureSuccessResponse,
+              );
+              if (wroteOutput) {
+                await _closeResponseIgnoringContentLengthShortfall(
+                  request.response,
+                );
+              } else {
+                await closeFailedResponse();
+              }
+              return;
+            }
+            if (origin.statusCode == HttpStatus.partialContent) {
+              bytes = await _readOriginWithPeerRetry(
+                resource,
+                pieceKey,
+                origin,
+                rangeHeader: rangeHeader,
+                expectedPeerLength: end - start + 1,
+                requestedRange: _ByteRange(start, end),
+                peerRecoveryTimeout: progressiveOriginPeerRecoveryTimeout,
+              );
+              if (bytes != null && resource.shareable) {
+                _putCache(resource.swarmId, pieceKey, bytes);
+              }
+            } else {
+              debugPrint(
+                'P2P media origin returned ${origin.statusCode} for '
+                '$pieceKey (attempt ${attempt + 1}/'
+                '$_progressiveOriginAttempts)',
+              );
+              await origin.drain<void>();
+            }
           }
-          if (resource.shareable) {
-            _putCache(resource.swarmId, pieceKey, bytes);
+          if (bytes == null && attempt + 1 < _progressiveOriginAttempts) {
+            await Future<void>.delayed(_progressiveOriginRetryDelay);
           }
         }
+        if (bytes == null) {
+          await closeFailedResponse();
+          return;
+        }
       }
-      request.response.add(bytes);
+      final outputStart = max(0, outputRange.start - start);
+      final outputEnd = min(bytes.length, outputRange.end - start + 1);
+      if (outputStart < outputEnd) {
+        configureSuccessResponse();
+        request.response.add(
+          Uint8List.sublistView(bytes, outputStart, outputEnd),
+        );
+        await request.response.flush();
+      }
       _scheduleProgressivePeerPrefetch(
         resource,
         start: start + progressivePieceSize,
         totalLength: totalLength,
       );
     }
+    if (!successResponseConfigured) {
+      await closeFailedResponse();
+      return;
+    }
     await request.response.close();
+  }
+
+  static Future<void> _closeResponseIgnoringContentLengthShortfall(
+    HttpResponse response,
+  ) async {
+    try {
+      await response.close();
+    } on HttpException catch (error) {
+      if (!error.message.startsWith(
+        'Content size below specified contentLength.',
+      )) {
+        rethrow;
+      }
+    }
   }
 
   void _scheduleProgressivePeerPrefetch(
@@ -850,14 +965,17 @@ class P2pMediaEngine implements P2pMediaPlaybackEngine {
     }
   }
 
-  Future<void> _streamCompleteOriginFromOffset(
+  Future<bool> _streamCompleteOriginFromOffset(
     HttpRequest request,
     _GatewayResource resource,
     HttpClientResponse origin, {
     required int outputOffset,
+    required void Function() beforeFirstOutput,
   }) async {
+    request.response.bufferOutput = false;
     var absoluteOffset = 0;
     var pieceIndex = 0;
+    var wroteOutput = false;
     var pieceBuilder = BytesBuilder(copy: false);
     await for (final chunk in origin) {
       _recordHttp(chunk.length);
@@ -880,7 +998,10 @@ class P2pMediaEngine implements P2pMediaPlaybackEngine {
       final chunkEnd = absoluteOffset + chunk.length;
       if (chunkEnd > outputOffset) {
         final startInChunk = max(0, outputOffset - absoluteOffset);
+        if (!wroteOutput) beforeFirstOutput();
         request.response.add(chunk.sublist(startInChunk));
+        await request.response.flush();
+        wroteOutput = true;
       }
       absoluteOffset = chunkEnd;
     }
@@ -891,6 +1012,7 @@ class P2pMediaEngine implements P2pMediaPlaybackEngine {
         pieceBuilder.takeBytes(),
       );
     }
+    return wroteOutput;
   }
 
   Future<Uint8List?> _loadPiece(
@@ -973,6 +1095,14 @@ class P2pMediaEngine implements P2pMediaPlaybackEngine {
       resource,
       rangeHeader: rangeHeader,
     );
+    if (!_canRequestPeer(resource)) {
+      final origin = await Future.any<HttpClientResponse?>([
+        originOperation.future,
+        Future<HttpClientResponse?>.delayed(originHeaderTimeout, () => null),
+      ]);
+      if (origin == null) await originOperation.cancel();
+      return origin == null ? null : _OpenedOriginOrPeer(origin: origin);
+    }
     final cancellation = P2pPieceRequestCancellation();
     _activePeerRequests.add(cancellation);
     final Future<Uint8List?> peerFuture;
@@ -1047,6 +1177,7 @@ class P2pMediaEngine implements P2pMediaPlaybackEngine {
     String? rangeHeader,
     int? expectedPeerLength,
     _ByteRange? requestedRange,
+    Duration? peerRecoveryTimeout,
   }) async {
     final maxOriginBytes =
         origin.statusCode == HttpStatus.ok && requestedRange != null
@@ -1083,6 +1214,17 @@ class P2pMediaEngine implements P2pMediaPlaybackEngine {
         requestedRange.end + 1,
       );
     });
+    if (!_canRequestPeer(resource)) {
+      final stalled = await Future.any<bool>([
+        originFuture.then((_) => false),
+        originRead.stalled,
+      ]);
+      if (stalled) {
+        await originRead.cancel();
+        return null;
+      }
+      return originFuture;
+    }
     final cancellation = P2pPieceRequestCancellation();
     _activePeerRequests.add(cancellation);
     final startPeer = Completer<bool>();
@@ -1096,15 +1238,20 @@ class P2pMediaEngine implements P2pMediaPlaybackEngine {
         if (!startPeer.isCompleted) startPeer.complete(bytes == null);
       }),
     );
-    final peerFuture = startPeer.future.then((start) {
+    final peerFuture = startPeer.future.then((start) async {
       if (!start) return null;
-      return _retryPeerPiece(
+      final retry = _retryPeerPiece(
         resource,
         pieceKey,
         cancellation,
         rangeHeader: rangeHeader,
         expectedLength: expectedPeerLength,
       );
+      if (peerRecoveryTimeout == null) return retry;
+      return Future.any<Uint8List?>([
+        retry,
+        Future<Uint8List?>.delayed(peerRecoveryTimeout, () => null),
+      ]);
     });
     final winner = Completer<_PieceReadWinner?>();
     var finished = 0;
@@ -1932,10 +2079,15 @@ class P2pMediaEngine implements P2pMediaPlaybackEngine {
       await _serveWholePiece(request, child);
       return;
     }
+    final requested = _parseRange(rangeHeader);
     final totalLength = await _resolveResourceLength(child);
-    final range = _parseRange(rangeHeader)?.resolve(totalLength);
+    final range = requested?.resolve(totalLength);
     if (range == null) {
       await _writeRangeNotSatisfiable(request, totalLength);
+      return;
+    }
+    if (requested!.isOpenEnded) {
+      await _serveProgressiveBody(request, child, totalLength, range: range);
       return;
     }
     await _serveWholePiece(
@@ -1991,7 +2143,8 @@ class P2pMediaEngine implements P2pMediaPlaybackEngine {
     }
   }
 
-  bool _canRequestPeer(_GatewayResource resource) => resource.shareable;
+  bool _canRequestPeer(_GatewayResource resource) =>
+      resource.shareable && hasConnectedPeer(resource.swarmId);
 
   Uri _localUri(_GatewayResource resource) {
     final server = _server!;
@@ -2436,6 +2589,8 @@ class _RequestedByteRange {
   final int? start;
   final int? end;
   final int? suffixLength;
+
+  bool get isOpenEnded => start != null && end == null;
 
   _ByteRange? resolve(int totalLength) {
     if (totalLength <= 0) return null;
