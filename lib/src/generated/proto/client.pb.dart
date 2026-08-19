@@ -3802,6 +3802,7 @@ class Room extends $pb.GeneratedMessage {
     UserPublicView? creator,
     RoomCategory? category,
     $core.Iterable<RoomLabel>? labels,
+    $core.bool? isPublic,
   }) {
     final result = create();
     if (id != null) result.id = id;
@@ -3821,6 +3822,7 @@ class Room extends $pb.GeneratedMessage {
     if (creator != null) result.creator = creator;
     if (category != null) result.category = category;
     if (labels != null) result.labels.addAll(labels);
+    if (isPublic != null) result.isPublic = isPublic;
     return result;
   }
 
@@ -3862,6 +3864,7 @@ class Room extends $pb.GeneratedMessage {
         subBuilder: RoomCategory.create)
     ..pPM<RoomLabel>(17, _omitFieldNames ? '' : 'labels',
         subBuilder: RoomLabel.create)
+    ..aOB(18, _omitFieldNames ? '' : 'isPublic')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -4038,6 +4041,15 @@ class Room extends $pb.GeneratedMessage {
 
   @$pb.TagNumber(17)
   $pb.PbList<RoomLabel> get labels => $_getList(16);
+
+  @$pb.TagNumber(18)
+  $core.bool get isPublic => $_getBF(17);
+  @$pb.TagNumber(18)
+  set isPublic($core.bool value) => $_setBool(17, value);
+  @$pb.TagNumber(18)
+  $core.bool hasIsPublic() => $_has(17);
+  @$pb.TagNumber(18)
+  void clearIsPublic() => $_clearField(18);
 }
 
 class RoomCategory extends $pb.GeneratedMessage {
@@ -4547,6 +4559,7 @@ class Playlist extends $pb.GeneratedMessage {
     ResourceCover? cover,
     $core.String? creatorId,
     ResourceMetadata? metadata,
+    PlaylistBrowseAccessMode? browseAccessMode,
   }) {
     final result = create();
     if (id != null) result.id = id;
@@ -4568,6 +4581,7 @@ class Playlist extends $pb.GeneratedMessage {
     if (cover != null) result.cover = cover;
     if (creatorId != null) result.creatorId = creatorId;
     if (metadata != null) result.metadata = metadata;
+    if (browseAccessMode != null) result.browseAccessMode = browseAccessMode;
     return result;
   }
 
@@ -4607,6 +4621,9 @@ class Playlist extends $pb.GeneratedMessage {
     ..aOS(17, _omitFieldNames ? '' : 'creatorId')
     ..aOM<ResourceMetadata>(18, _omitFieldNames ? '' : 'metadata',
         subBuilder: ResourceMetadata.create)
+    ..aE<PlaylistBrowseAccessMode>(
+        19, _omitFieldNames ? '' : 'browseAccessMode',
+        enumValues: PlaylistBrowseAccessMode.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -4794,6 +4811,15 @@ class Playlist extends $pb.GeneratedMessage {
   void clearMetadata() => $_clearField(18);
   @$pb.TagNumber(18)
   ResourceMetadata ensureMetadata() => $_ensure(17);
+
+  @$pb.TagNumber(19)
+  PlaylistBrowseAccessMode get browseAccessMode => $_getN(18);
+  @$pb.TagNumber(19)
+  set browseAccessMode(PlaylistBrowseAccessMode value) => $_setField(19, value);
+  @$pb.TagNumber(19)
+  $core.bool hasBrowseAccessMode() => $_has(18);
+  @$pb.TagNumber(19)
+  void clearBrowseAccessMode() => $_clearField(19);
 }
 
 class ResourceCover extends $pb.GeneratedMessage {
@@ -10849,6 +10875,7 @@ class CreateRoomRequest extends $pb.GeneratedMessage {
     $core.String? password,
     $core.String? categoryId,
     $core.Iterable<$core.String>? labelIds,
+    $core.bool? isPublic,
   }) {
     final result = create();
     if (name != null) result.name = name;
@@ -10857,6 +10884,7 @@ class CreateRoomRequest extends $pb.GeneratedMessage {
     if (password != null) result.password = password;
     if (categoryId != null) result.categoryId = categoryId;
     if (labelIds != null) result.labelIds.addAll(labelIds);
+    if (isPublic != null) result.isPublic = isPublic;
     return result;
   }
 
@@ -10880,6 +10908,7 @@ class CreateRoomRequest extends $pb.GeneratedMessage {
     ..aOS(4, _omitFieldNames ? '' : 'password')
     ..aOS(5, _omitFieldNames ? '' : 'categoryId')
     ..pPS(6, _omitFieldNames ? '' : 'labelIds')
+    ..aOB(7, _omitFieldNames ? '' : 'isPublic')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -10950,6 +10979,15 @@ class CreateRoomRequest extends $pb.GeneratedMessage {
 
   @$pb.TagNumber(6)
   $pb.PbList<$core.String> get labelIds => $_getList(5);
+
+  @$pb.TagNumber(7)
+  $core.bool get isPublic => $_getBF(6);
+  @$pb.TagNumber(7)
+  set isPublic($core.bool value) => $_setBool(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasIsPublic() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearIsPublic() => $_clearField(7);
 }
 
 /// Note: UserService room-scoped resource request; room_id is carried in payload.
@@ -12266,6 +12304,63 @@ class UpdateRoomSettingsRequest extends $pb.GeneratedMessage {
   $3.FieldMask ensureUpdateMask() => $_ensure(1);
 }
 
+class UpdateRoomVisibilityRequest extends $pb.GeneratedMessage {
+  factory UpdateRoomVisibilityRequest({
+    $core.bool? isPublic,
+  }) {
+    final result = create();
+    if (isPublic != null) result.isPublic = isPublic;
+    return result;
+  }
+
+  UpdateRoomVisibilityRequest._();
+
+  factory UpdateRoomVisibilityRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory UpdateRoomVisibilityRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'UpdateRoomVisibilityRequest',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'synctv.client'),
+      createEmptyInstance: create)
+    ..aOB(1, _omitFieldNames ? '' : 'isPublic')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UpdateRoomVisibilityRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UpdateRoomVisibilityRequest copyWith(
+          void Function(UpdateRoomVisibilityRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as UpdateRoomVisibilityRequest))
+          as UpdateRoomVisibilityRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static UpdateRoomVisibilityRequest create() =>
+      UpdateRoomVisibilityRequest._();
+  @$core.override
+  UpdateRoomVisibilityRequest createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static UpdateRoomVisibilityRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<UpdateRoomVisibilityRequest>(create);
+  static UpdateRoomVisibilityRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.bool get isPublic => $_getBF(0);
+  @$pb.TagNumber(1)
+  set isPublic($core.bool value) => $_setBool(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasIsPublic() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearIsPublic() => $_clearField(1);
+}
+
 /// Get room settings
 class GetRoomSettingsRequest extends $pb.GeneratedMessage {
   factory GetRoomSettingsRequest() => create();
@@ -13430,6 +13525,194 @@ class ListRoomStreamsResponse extends $pb.GeneratedMessage {
   $core.bool hasTotal() => $_has(1);
   @$pb.TagNumber(2)
   void clearTotal() => $_clearField(2);
+}
+
+class CreateRoomPublishKeyRequest extends $pb.GeneratedMessage {
+  factory CreateRoomPublishKeyRequest({
+    $core.String? mediaId,
+    PublishKeyType? type,
+    $fixnum.Int64? expiresAt,
+  }) {
+    final result = create();
+    if (mediaId != null) result.mediaId = mediaId;
+    if (type != null) result.type = type;
+    if (expiresAt != null) result.expiresAt = expiresAt;
+    return result;
+  }
+
+  CreateRoomPublishKeyRequest._();
+
+  factory CreateRoomPublishKeyRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory CreateRoomPublishKeyRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'CreateRoomPublishKeyRequest',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'synctv.client'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'mediaId')
+    ..aE<PublishKeyType>(2, _omitFieldNames ? '' : 'type',
+        enumValues: PublishKeyType.values)
+    ..aInt64(3, _omitFieldNames ? '' : 'expiresAt')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CreateRoomPublishKeyRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CreateRoomPublishKeyRequest copyWith(
+          void Function(CreateRoomPublishKeyRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as CreateRoomPublishKeyRequest))
+          as CreateRoomPublishKeyRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static CreateRoomPublishKeyRequest create() =>
+      CreateRoomPublishKeyRequest._();
+  @$core.override
+  CreateRoomPublishKeyRequest createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static CreateRoomPublishKeyRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<CreateRoomPublishKeyRequest>(create);
+  static CreateRoomPublishKeyRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get mediaId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set mediaId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasMediaId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearMediaId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  PublishKeyType get type => $_getN(1);
+  @$pb.TagNumber(2)
+  set type(PublishKeyType value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasType() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearType() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $fixnum.Int64 get expiresAt => $_getI64(2);
+  @$pb.TagNumber(3)
+  set expiresAt($fixnum.Int64 value) => $_setInt64(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasExpiresAt() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearExpiresAt() => $_clearField(3);
+}
+
+class CreateRoomPublishKeyResponse extends $pb.GeneratedMessage {
+  factory CreateRoomPublishKeyResponse({
+    $core.String? publishKey,
+    $core.String? rtmpUrl,
+    $core.String? streamKey,
+    $fixnum.Int64? expiresAt,
+    PublishKeyType? type,
+  }) {
+    final result = create();
+    if (publishKey != null) result.publishKey = publishKey;
+    if (rtmpUrl != null) result.rtmpUrl = rtmpUrl;
+    if (streamKey != null) result.streamKey = streamKey;
+    if (expiresAt != null) result.expiresAt = expiresAt;
+    if (type != null) result.type = type;
+    return result;
+  }
+
+  CreateRoomPublishKeyResponse._();
+
+  factory CreateRoomPublishKeyResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory CreateRoomPublishKeyResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'CreateRoomPublishKeyResponse',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'synctv.client'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'publishKey')
+    ..aOS(2, _omitFieldNames ? '' : 'rtmpUrl')
+    ..aOS(3, _omitFieldNames ? '' : 'streamKey')
+    ..aInt64(4, _omitFieldNames ? '' : 'expiresAt')
+    ..aE<PublishKeyType>(5, _omitFieldNames ? '' : 'type',
+        enumValues: PublishKeyType.values)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CreateRoomPublishKeyResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CreateRoomPublishKeyResponse copyWith(
+          void Function(CreateRoomPublishKeyResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as CreateRoomPublishKeyResponse))
+          as CreateRoomPublishKeyResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static CreateRoomPublishKeyResponse create() =>
+      CreateRoomPublishKeyResponse._();
+  @$core.override
+  CreateRoomPublishKeyResponse createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static CreateRoomPublishKeyResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<CreateRoomPublishKeyResponse>(create);
+  static CreateRoomPublishKeyResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get publishKey => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set publishKey($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPublishKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPublishKey() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get rtmpUrl => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set rtmpUrl($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasRtmpUrl() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearRtmpUrl() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get streamKey => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set streamKey($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasStreamKey() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearStreamKey() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $fixnum.Int64 get expiresAt => $_getI64(3);
+  @$pb.TagNumber(4)
+  set expiresAt($fixnum.Int64 value) => $_setInt64(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasExpiresAt() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearExpiresAt() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  PublishKeyType get type => $_getN(4);
+  @$pb.TagNumber(5)
+  set type(PublishKeyType value) => $_setField(5, value);
+  @$pb.TagNumber(5)
+  $core.bool hasType() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearType() => $_clearField(5);
 }
 
 class GetRoomStreamInfoRequest extends $pb.GeneratedMessage {
@@ -14755,6 +15038,7 @@ class CreatePlaylistRequest extends $pb.GeneratedMessage {
     $1.PlaylistSourceConfig? sourceConfig,
     $core.String? providerInstanceName,
     $core.String? description,
+    PlaylistBrowseAccessMode? browseAccessMode,
   }) {
     final result = create();
     if (name != null) result.name = name;
@@ -14764,6 +15048,7 @@ class CreatePlaylistRequest extends $pb.GeneratedMessage {
     if (providerInstanceName != null)
       result.providerInstanceName = providerInstanceName;
     if (description != null) result.description = description;
+    if (browseAccessMode != null) result.browseAccessMode = browseAccessMode;
     return result;
   }
 
@@ -14788,6 +15073,8 @@ class CreatePlaylistRequest extends $pb.GeneratedMessage {
         subBuilder: $1.PlaylistSourceConfig.create)
     ..aOS(5, _omitFieldNames ? '' : 'providerInstanceName')
     ..aOS(6, _omitFieldNames ? '' : 'description')
+    ..aE<PlaylistBrowseAccessMode>(7, _omitFieldNames ? '' : 'browseAccessMode',
+        enumValues: PlaylistBrowseAccessMode.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -14865,6 +15152,15 @@ class CreatePlaylistRequest extends $pb.GeneratedMessage {
   $core.bool hasDescription() => $_has(5);
   @$pb.TagNumber(6)
   void clearDescription() => $_clearField(6);
+
+  @$pb.TagNumber(7)
+  PlaylistBrowseAccessMode get browseAccessMode => $_getN(6);
+  @$pb.TagNumber(7)
+  set browseAccessMode(PlaylistBrowseAccessMode value) => $_setField(7, value);
+  @$pb.TagNumber(7)
+  $core.bool hasBrowseAccessMode() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearBrowseAccessMode() => $_clearField(7);
 }
 
 class UpdatePlaylistRequest extends $pb.GeneratedMessage {
@@ -14872,11 +15168,15 @@ class UpdatePlaylistRequest extends $pb.GeneratedMessage {
     $core.String? playlistId,
     $core.String? name,
     $core.String? description,
+    $1.PlaylistSourceConfig? sourceConfig,
+    PlaylistBrowseAccessMode? browseAccessMode,
   }) {
     final result = create();
     if (playlistId != null) result.playlistId = playlistId;
     if (name != null) result.name = name;
     if (description != null) result.description = description;
+    if (sourceConfig != null) result.sourceConfig = sourceConfig;
+    if (browseAccessMode != null) result.browseAccessMode = browseAccessMode;
     return result;
   }
 
@@ -14896,6 +15196,10 @@ class UpdatePlaylistRequest extends $pb.GeneratedMessage {
     ..aOS(1, _omitFieldNames ? '' : 'playlistId')
     ..aOS(2, _omitFieldNames ? '' : 'name')
     ..aOS(3, _omitFieldNames ? '' : 'description')
+    ..aOM<$1.PlaylistSourceConfig>(4, _omitFieldNames ? '' : 'sourceConfig',
+        subBuilder: $1.PlaylistSourceConfig.create)
+    ..aE<PlaylistBrowseAccessMode>(6, _omitFieldNames ? '' : 'browseAccessMode',
+        enumValues: PlaylistBrowseAccessMode.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -14944,6 +15248,28 @@ class UpdatePlaylistRequest extends $pb.GeneratedMessage {
   $core.bool hasDescription() => $_has(2);
   @$pb.TagNumber(3)
   void clearDescription() => $_clearField(3);
+
+  /// Replaces the complete source configuration of an existing dynamic
+  /// playlist. The provider is derived from this config.
+  @$pb.TagNumber(4)
+  $1.PlaylistSourceConfig get sourceConfig => $_getN(3);
+  @$pb.TagNumber(4)
+  set sourceConfig($1.PlaylistSourceConfig value) => $_setField(4, value);
+  @$pb.TagNumber(4)
+  $core.bool hasSourceConfig() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearSourceConfig() => $_clearField(4);
+  @$pb.TagNumber(4)
+  $1.PlaylistSourceConfig ensureSourceConfig() => $_ensure(3);
+
+  @$pb.TagNumber(6)
+  PlaylistBrowseAccessMode get browseAccessMode => $_getN(4);
+  @$pb.TagNumber(6)
+  set browseAccessMode(PlaylistBrowseAccessMode value) => $_setField(6, value);
+  @$pb.TagNumber(6)
+  $core.bool hasBrowseAccessMode() => $_has(4);
+  @$pb.TagNumber(6)
+  void clearBrowseAccessMode() => $_clearField(6);
 }
 
 enum MovePlaylistRequest_Anchor { beforePlaylistId, afterPlaylistId, notSet }
@@ -24939,6 +25265,7 @@ class PlaybackDanmaku extends $pb.GeneratedMessage {
     $core.Iterable<$core.MapEntry<$core.String, $core.String>>? headers,
     $fixnum.Int64? expireAt,
     P2pResourceDelivery? p2pDelivery,
+    PlaybackDanmakuDelivery? delivery,
   }) {
     final result = create();
     if (name != null) result.name = name;
@@ -24947,6 +25274,7 @@ class PlaybackDanmaku extends $pb.GeneratedMessage {
     if (headers != null) result.headers.addEntries(headers);
     if (expireAt != null) result.expireAt = expireAt;
     if (p2pDelivery != null) result.p2pDelivery = p2pDelivery;
+    if (delivery != null) result.delivery = delivery;
     return result;
   }
 
@@ -24974,6 +25302,8 @@ class PlaybackDanmaku extends $pb.GeneratedMessage {
     ..aInt64(5, _omitFieldNames ? '' : 'expireAt')
     ..aOM<P2pResourceDelivery>(6, _omitFieldNames ? '' : 'p2pDelivery',
         subBuilder: P2pResourceDelivery.create)
+    ..aE<PlaybackDanmakuDelivery>(7, _omitFieldNames ? '' : 'delivery',
+        enumValues: PlaybackDanmakuDelivery.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -25050,6 +25380,16 @@ class PlaybackDanmaku extends $pb.GeneratedMessage {
   void clearP2pDelivery() => $_clearField(6);
   @$pb.TagNumber(6)
   P2pResourceDelivery ensureP2pDelivery() => $_ensure(5);
+
+  /// Transport contract for this danmaku resource.
+  @$pb.TagNumber(7)
+  PlaybackDanmakuDelivery get delivery => $_getN(6);
+  @$pb.TagNumber(7)
+  set delivery(PlaybackDanmakuDelivery value) => $_setField(7, value);
+  @$pb.TagNumber(7)
+  $core.bool hasDelivery() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearDelivery() => $_clearField(7);
 }
 
 enum ClientMessage_Message {
@@ -26073,7 +26413,7 @@ class ObserveOnlineCount extends $pb.GeneratedMessage {
       $pb.GeneratedMessage.$_defaultFor<ObserveOnlineCount>(create);
   static ObserveOnlineCount? _defaultInstance;
 
-  /// Empty filters return the whole-room online user count.
+  /// Empty filters return the whole-room member and guest online counts.
   /// Use role filters or user_ids to reduce the aggregation scope for member list views.
   @$pb.TagNumber(1)
   $pb.PbList<$0.RoomMemberRole> get roles => $_getList(0);
@@ -39499,10 +39839,12 @@ class HeartbeatAck extends $pb.GeneratedMessage {
 
 class OnlineCount extends $pb.GeneratedMessage {
   factory OnlineCount({
-    $core.int? count,
+    $core.int? onlineMemberCount,
+    $core.int? onlineGuestCount,
   }) {
     final result = create();
-    if (count != null) result.count = count;
+    if (onlineMemberCount != null) result.onlineMemberCount = onlineMemberCount;
+    if (onlineGuestCount != null) result.onlineGuestCount = onlineGuestCount;
     return result;
   }
 
@@ -39519,7 +39861,8 @@ class OnlineCount extends $pb.GeneratedMessage {
       _omitMessageNames ? '' : 'OnlineCount',
       package: const $pb.PackageName(_omitMessageNames ? '' : 'synctv.client'),
       createEmptyInstance: create)
-    ..aI(1, _omitFieldNames ? '' : 'count')
+    ..aI(1, _omitFieldNames ? '' : 'onlineMemberCount')
+    ..aI(2, _omitFieldNames ? '' : 'onlineGuestCount')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -39542,13 +39885,22 @@ class OnlineCount extends $pb.GeneratedMessage {
   static OnlineCount? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $core.int get count => $_getIZ(0);
+  $core.int get onlineMemberCount => $_getIZ(0);
   @$pb.TagNumber(1)
-  set count($core.int value) => $_setSignedInt32(0, value);
+  set onlineMemberCount($core.int value) => $_setSignedInt32(0, value);
   @$pb.TagNumber(1)
-  $core.bool hasCount() => $_has(0);
+  $core.bool hasOnlineMemberCount() => $_has(0);
   @$pb.TagNumber(1)
-  void clearCount() => $_clearField(1);
+  void clearOnlineMemberCount() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.int get onlineGuestCount => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set onlineGuestCount($core.int value) => $_setSignedInt32(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasOnlineGuestCount() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearOnlineGuestCount() => $_clearField(2);
 }
 
 class OnlineEvent extends $pb.GeneratedMessage {
@@ -49755,6 +50107,10 @@ class RoomServiceApi {
           $pb.ClientContext? ctx, UpdateRoomSettingsRequest request) =>
       _client.invoke<Room>(
           ctx, 'RoomService', 'UpdateRoomSettings', request, Room());
+  $async.Future<Room> updateRoomVisibility(
+          $pb.ClientContext? ctx, UpdateRoomVisibilityRequest request) =>
+      _client.invoke<Room>(
+          ctx, 'RoomService', 'UpdateRoomVisibility', request, Room());
   $async.Future<RoomSettings> resetRoomSettings(
           $pb.ClientContext? ctx, ResetRoomSettingsRequest request) =>
       _client.invoke<RoomSettings>(
@@ -49801,6 +50157,10 @@ class RoomServiceApi {
           $pb.ClientContext? ctx, ListRoomStreamsRequest request) =>
       _client.invoke<ListRoomStreamsResponse>(ctx, 'RoomService',
           'ListRoomStreams', request, ListRoomStreamsResponse());
+  $async.Future<CreateRoomPublishKeyResponse> createRoomPublishKey(
+          $pb.ClientContext? ctx, CreateRoomPublishKeyRequest request) =>
+      _client.invoke<CreateRoomPublishKeyResponse>(ctx, 'RoomService',
+          'CreateRoomPublishKey', request, CreateRoomPublishKeyResponse());
   $async.Future<GetRoomStreamInfoResponse> getRoomStreamInfo(
           $pb.ClientContext? ctx, GetRoomStreamInfoRequest request) =>
       _client.invoke<GetRoomStreamInfoResponse>(ctx, 'RoomService',

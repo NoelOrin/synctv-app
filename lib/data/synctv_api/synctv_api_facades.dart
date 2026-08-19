@@ -779,6 +779,18 @@ class SyncTvRoomApi {
     );
   }
 
+  Future<client.Room> updateRoomVisibility(
+    String roomId,
+    client.UpdateRoomVisibilityRequest request,
+  ) {
+    return _api._send(
+      'PATCH',
+      '/api/rooms/$roomId/visibility',
+      client.Room.create,
+      body: request,
+    );
+  }
+
   Future<client.RoomSettings> resetRoomSettings(
     String roomId,
     client.ResetRoomSettingsRequest request,
@@ -883,6 +895,18 @@ class SyncTvRoomApi {
       '/api/rooms/$roomId/streams',
       client.ListRoomStreamsResponse.create,
       query: _api._messageQuery(request),
+    );
+  }
+
+  Future<client.CreateRoomPublishKeyResponse> createRoomPublishKey(
+    String roomId,
+    client.CreateRoomPublishKeyRequest request,
+  ) {
+    return _api._send(
+      'POST',
+      '/api/playback-providers/$roomId/rtmp/${request.mediaId}/publish-key',
+      client.CreateRoomPublishKeyResponse.create,
+      body: request,
     );
   }
 
@@ -4174,30 +4198,4 @@ class SyncTvTrueNasProviderApi {
         truenas.GetBindsResponse.create,
         query: _api._messageQuery(request),
       );
-}
-
-class SyncTvRtmpProviderApi {
-  SyncTvRtmpProviderApi._(this._api);
-
-  final SyncTvApiClient _api;
-
-  Future<rtmp.CreatePublishKeyResponse> createPublishKey(
-    rtmp.CreatePublishKeyRequest request,
-  ) {
-    return _api._send(
-      'POST',
-      '/api/providers/rtmp/rooms/${request.roomId}/publish-key/${request.mediaId}',
-      rtmp.CreatePublishKeyResponse.create,
-    );
-  }
-
-  Future<rtmp.GetStreamInfoResponse> getStreamInfo(
-    rtmp.GetStreamInfoRequest request,
-  ) {
-    return _api._send(
-      'GET',
-      '/api/providers/rtmp/rooms/${request.roomId}/info/${request.mediaId}',
-      rtmp.GetStreamInfoResponse.create,
-    );
-  }
 }

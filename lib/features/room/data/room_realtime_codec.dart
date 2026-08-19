@@ -948,10 +948,11 @@ class RoomRealtimeCodec {
         );
       case client.ResourceEvent_Payload.onlineCount:
         return RoomRealtimeMessage(
-          kind: RoomRealtimeMessageKind.viewerCount,
+          kind: RoomRealtimeMessageKind.presenceCount,
           resourceObserveId: changed.observeId,
           resourceVersion: _cursorVersion(changed.eventCursor),
-          resourceTotal: changed.onlineCount.count,
+          onlineMemberCount: changed.onlineCount.onlineMemberCount,
+          onlineGuestCount: changed.onlineCount.onlineGuestCount,
         );
       case client.ResourceEvent_Payload.onlineEvent:
         return _onlineEvent(
@@ -1295,6 +1296,7 @@ class RoomRealtimeCodec {
       updatedAt: playlist.updatedAt.toInt(),
       itemCount: playlist.itemCount,
       availability: playlist.availability,
+      browseAccessMode: playlist.browseAccessMode,
       version: playlist.version.toInt(),
       description: playlist.description,
       coverUrl: playlist.hasCover() ? playlist.cover.url : '',

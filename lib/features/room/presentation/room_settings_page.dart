@@ -10,6 +10,7 @@ import 'package:synctv_app/features/room/application/room_realtime_protocol.dart
 import 'package:synctv_app/features/room/domain/room_realtime.dart';
 import 'package:synctv_app/contracts/room_management_models.dart';
 import 'package:synctv_app/contracts/room_media_models.dart';
+import 'package:synctv_app/contracts/discovered_source.dart';
 import 'package:synctv_app/contracts/source_config_codec.dart';
 import 'package:synctv_app/contracts/synctv_models.dart';
 import 'package:synctv_app/features/content_reports/presentation/content_reports_view.dart';
@@ -160,6 +161,7 @@ class RoomSettingsPage extends StatefulWidget {
   final String roomName;
   final String creatorId;
   final String currentUserId;
+  final bool isPublic;
   final SyncTvRoomSettings currentSettings;
   final RoomRealtimeSession realtime;
   final bool canViewPlaybackHistory;
@@ -173,6 +175,7 @@ class RoomSettingsPage extends StatefulWidget {
     required this.roomName,
     this.creatorId = '',
     this.currentUserId = '',
+    required this.isPublic,
     required this.currentSettings,
     required this.realtime,
     required this.p2pMediaPreferences,
@@ -274,10 +277,10 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
   _RealtimeDiagnosticsPane _realtimePane = _RealtimeDiagnosticsPane.overview;
 
   bool _allowGuestJoin = false;
+  late bool _isPublic;
   bool _requireApproval = false;
   bool _allowAutoJoin = true;
   bool _chatEnabled = true;
-  bool _danmakuEnabled = true;
   bool _voiceChatEnabled = true;
   bool _p2pMediaEnabled = true;
   int _memberPermissions = RoomMemberPermissions.all;
@@ -294,6 +297,8 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
   bool _iceLoading = false;
   bool _coverUpdating = false;
   bool _passwordUpdating = false;
+  bool _visibilityUpdating = false;
+  int _visibilityMutationGeneration = 0;
   bool _freeModeSaving = false;
   bool _isDisposing = false;
   ChatReadStateInfo? _chatReadState;
@@ -326,6 +331,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
     _tabController = TabController(length: _sectionCount, vsync: this);
     _tabController.addListener(_handleTabChanged);
     _settings = widget.currentSettings;
+    _isPublic = widget.isPublic;
     _playbackModeConfig = _playbackModePreferences.value;
     _currentUserId = widget.currentUserId;
     _passwordController = TextEditingController();
@@ -428,7 +434,6 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
     _requireApproval = settings.requireApproval;
     _allowAutoJoin = settings.allowAutoJoin;
     _chatEnabled = settings.chatEnabled;
-    _danmakuEnabled = settings.danmakuEnabled;
     _voiceChatEnabled = settings.voiceChatEnabled;
     _p2pMediaEnabled = settings.p2pMediaEnabled;
     _memberPermissions = settings.effectiveMemberPermissions;
@@ -492,10 +497,16 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
   }
 
   Future<void> _loadRoomInfo() async {
+    final visibilityGeneration = _visibilityMutationGeneration;
     try {
       final room = await _roomGateway.getRoomInfo(widget.roomId);
       if (!mounted) return;
-      setState(() => _roomInfo = room);
+      setState(() {
+        _roomInfo = room;
+        if (visibilityGeneration == _visibilityMutationGeneration) {
+          _isPublic = room.isPublic;
+        }
+      });
     } catch (e) {
       debugPrint('Load room info failed: $e');
     }
@@ -523,6 +534,49 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
       }
     } finally {
       if (mounted) setState(() => _coverUpdating = false);
+    }
+  }
+
+  Future<void> _updateRoomVisibility(bool isPublic) async {
+    if (_visibilityUpdating || isPublic == _isPublic) return;
+    if (!isPublic) {
+      setState(() => _visibilityUpdating = true);
+      final confirmed = await _confirm(
+        title: context.l10n.makeRoomPrivate,
+        content: context.l10n.makeRoomPrivateConfirmation,
+        action: context.l10n.makePrivate,
+        destructive: true,
+      );
+      if (!mounted) return;
+      if (!confirmed) {
+        setState(() => _visibilityUpdating = false);
+        return;
+      }
+    }
+    final previousValue = _isPublic;
+    setState(() {
+      _isPublic = isPublic;
+      _visibilityUpdating = true;
+      _visibilityMutationGeneration += 1;
+    });
+    try {
+      final room = await _roomGateway.updateRoomVisibility(
+        widget.roomId,
+        isPublic,
+      );
+      if (!mounted) return;
+      setState(() {
+        _roomInfo = room;
+        _isPublic = room.isPublic;
+      });
+      AppNotifications.showSuccess(context, context.l10n.roomVisibilityUpdated);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isPublic = previousValue);
+        AppNotifications.showError(context, context.l10n.updateFailed('$e'));
+      }
+    } finally {
+      if (mounted) setState(() => _visibilityUpdating = false);
     }
   }
 
@@ -808,12 +862,12 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
       if (mounted) setState(() {});
       return;
     }
-    if (message.kind == RoomRealtimeMessageKind.viewerCount) {
+    if (message.kind == RoomRealtimeMessageKind.presenceCount) {
       _membersWatchStats.record(
         RoomResourceWatchEvent<void>.changed(version: message.resourceVersion),
       );
       if (mounted) {
-        setState(() => _membersOnlineCount = message.resourceTotal);
+        setState(() => _membersOnlineCount = message.onlineMemberCount);
       }
       return;
     }
@@ -1089,7 +1143,6 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
         allowAutoJoin: _allowAutoJoin,
         maxMembers: maxMembers,
         chatEnabled: _chatEnabled,
-        danmakuEnabled: _danmakuEnabled,
         autoPlayEnabled: _settings.autoPlayEnabled,
         autoPlayMode: _settings.autoPlayMode,
         autoPlayDelay: _settings.autoPlayDelay,
@@ -1198,8 +1251,8 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
           ..clear()
           ..addAll(page.members);
         _membersTotal = page.total;
-        _membersOnlineCount = page.onlineCount > 0
-            ? page.onlineCount
+        _membersOnlineCount = page.onlineMemberCount > 0
+            ? page.onlineMemberCount
             : _members.where((m) => m.isOnline).length;
         _membersWatchVersion = page.version;
       });
@@ -2372,7 +2425,12 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
       AppNotifications.showInfo(context, context.l10n.dynamicContentReadOnly);
       return;
     }
-    final input = await _showEntryEditDialog(title: context.l10n.newPlaylist);
+    final input = await _showEntryEditDialog(
+      title: context.l10n.newPlaylist,
+      playlistBrowseAccessMode: client_enum
+          .PlaylistBrowseAccessMode
+          .PLAYLIST_BROWSE_ACCESS_MODE_DEFAULT,
+    );
     if (input == null || input.name.isEmpty) return;
     try {
       await _mediaLibraryGateway.createPlaylist(
@@ -2380,6 +2438,11 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
         name: input.name,
         parentId: _currentPlaylistId,
         description: input.description,
+        browseAccessMode:
+            input.playlistBrowseAccessMode ??
+            client_enum
+                .PlaylistBrowseAccessMode
+                .PLAYLIST_BROWSE_ACCESS_MODE_DEFAULT,
       );
       await _loadMediaLibrary();
       if (mounted) {
@@ -2443,34 +2506,48 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
   }
 
   Future<void> _renameEntry(RoomMediaEntry entry) async {
-    if (!_canMutateCurrentMediaScope || entry.isProviderDynamicEntry) {
+    if (!_canMutateCurrentMediaScope || entry.isProviderDynamicItem) {
       AppNotifications.showInfo(context, context.l10n.dynamicContentReadOnly);
       return;
     }
     provider_common.PlaybackProxyPolicy? playbackProxyPolicy;
-    if (entry.id.startsWith('med_')) {
-      final sourceConfig = SourceConfigCodec.mediaSourceConfigFromMap(
-        sourceProvider: entry.sourceProvider,
-        sourceConfig: entry.sourceConfig,
-      );
-      if (sourceConfig != null) {
-        try {
-          playbackProxyPolicy =
-              await DependencyScope.read<ProviderGateway>(
-                context,
-              ).resolvePlaybackProxyPolicy(
-                provider_common.DiscoveredSource(
-                  media: sourceConfig,
-                  providerInstanceName: entry.providerInstanceName,
-                ),
-              );
-        } catch (error) {
-          if (mounted) {
-            AppNotifications.showWarning(
-              context,
-              context.l10n.playbackProxyPolicyUnavailable('$error'),
-            );
-          }
+    final mediaSourceConfig = entry.id.startsWith('med_')
+        ? SourceConfigCodec.mediaSourceConfigFromMap(
+            sourceProvider: entry.sourceProvider,
+            sourceConfig: entry.sourceConfig,
+          )
+        : null;
+    final playlistSourceConfig = entry.id.startsWith('pl_')
+        ? SourceConfigCodec.playlistSourceConfigFromMap(
+            sourceProvider: entry.sourceProvider,
+            sourceConfig: entry.sourceConfig,
+          )
+        : null;
+    final discoveredSource = switch ((
+      mediaSourceConfig,
+      playlistSourceConfig,
+    )) {
+      (final media?, _) => provider_common.DiscoveredSource(
+        media: media,
+        providerInstanceName: entry.providerInstanceName,
+      ),
+      (_, final playlist?) => provider_common.DiscoveredSource(
+        playlist: playlist,
+        providerInstanceName: entry.providerInstanceName,
+      ),
+      _ => null,
+    };
+    if (discoveredSource != null) {
+      try {
+        playbackProxyPolicy = await DependencyScope.read<ProviderGateway>(
+          context,
+        ).resolvePlaybackProxyPolicy(discoveredSource);
+      } catch (error) {
+        if (mounted) {
+          AppNotifications.showWarning(
+            context,
+            context.l10n.playbackProxyPolicyUnavailable('$error'),
+          );
         }
       }
     }
@@ -2482,15 +2559,22 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
       initialName: entry.name,
       initialDescription: entry.description,
       playbackProxyPolicy: playbackProxyPolicy,
+      playlistBrowseAccessMode: entry.isPlaylist
+          ? entry.browseAccessMode
+          : null,
     );
     if (input == null || input.name.isEmpty) return;
     final playbackProxyMode = input.playbackProxyMode;
     final playbackProxyModeChanged =
         playbackProxyMode != null &&
         playbackProxyMode != playbackProxyPolicy?.currentMode;
+    final playlistBrowseAccessModeChanged =
+        input.playlistBrowseAccessMode != null &&
+        input.playlistBrowseAccessMode != entry.browseAccessMode;
     if (input.name == entry.name &&
         input.description == entry.description &&
-        !playbackProxyModeChanged) {
+        !playbackProxyModeChanged &&
+        !playlistBrowseAccessModeChanged) {
       return;
     }
     try {
@@ -2500,6 +2584,15 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
           entry.id,
           name: input.name,
           description: input.description,
+          browseAccessMode: playlistBrowseAccessModeChanged
+              ? input.playlistBrowseAccessMode
+              : null,
+          sourceConfig: playbackProxyModeChanged && playlistSourceConfig != null
+              ? provider_common.DiscoveredSource(
+                  playlist: playlistSourceConfig,
+                  providerInstanceName: entry.providerInstanceName,
+                ).withPlaybackProxyMode(playbackProxyMode).requirePlaylist()
+              : null,
         );
       } else if (entry.id.startsWith('med_')) {
         await _mediaLibraryGateway.editMedia(
@@ -2516,7 +2609,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
       if (mounted) {
         AppNotifications.showSuccess(
           context,
-          playbackProxyModeChanged
+          playbackProxyModeChanged || playlistBrowseAccessModeChanged
               ? context.l10n.settingsUpdated
               : context.l10n.nameUpdated,
         );
@@ -2529,7 +2622,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
   }
 
   Future<void> _deleteEntry(RoomMediaEntry entry) async {
-    if (!_canMutateCurrentMediaScope || entry.isProviderDynamicEntry) {
+    if (!_canMutateCurrentMediaScope || entry.isProviderDynamicItem) {
       AppNotifications.showInfo(context, context.l10n.dynamicContentReadOnly);
       return;
     }
@@ -2588,7 +2681,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
           final canMutate =
               _canMutateCurrentMediaScope &&
               (detail.id.startsWith('pl_') || detail.id.startsWith('med_')) &&
-              !detail.isProviderDynamicEntry;
+              !detail.isProviderDynamicItem;
           return AppSafeArea(
             child: AppSingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -2769,7 +2862,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
 
   Future<void> _updateEntryCover(RoomMediaEntry entry) async {
     if (!_canMutateCurrentMediaScope ||
-        entry.isProviderDynamicEntry ||
+        entry.isProviderDynamicItem ||
         (!entry.id.startsWith('pl_') && !entry.id.startsWith('med_'))) {
       return;
     }
@@ -2805,7 +2898,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
 
   Future<void> _clearEntryCover(RoomMediaEntry entry) async {
     if (!_canMutateCurrentMediaScope ||
-        entry.isProviderDynamicEntry ||
+        entry.isProviderDynamicItem ||
         (!entry.id.startsWith('pl_') && !entry.id.startsWith('med_'))) {
       return;
     }
@@ -2831,7 +2924,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
 
   Future<void> _updateEntryThumbnail(RoomMediaEntry entry) async {
     if (!_canMutateCurrentMediaScope ||
-        entry.isProviderDynamicEntry ||
+        entry.isProviderDynamicItem ||
         !entry.id.startsWith('med_')) {
       return;
     }
@@ -2859,7 +2952,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
 
   Future<void> _clearEntryThumbnail(RoomMediaEntry entry) async {
     if (!_canMutateCurrentMediaScope ||
-        entry.isProviderDynamicEntry ||
+        entry.isProviderDynamicItem ||
         !entry.id.startsWith('med_')) {
       return;
     }
@@ -3105,7 +3198,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
   }
 
   Future<void> _moveMedia(RoomMediaEntry entry) async {
-    if (!_canMutateCurrentMediaScope || entry.isProviderDynamicEntry) {
+    if (!_canMutateCurrentMediaScope || entry.isProviderDynamicItem) {
       AppNotifications.showInfo(context, context.l10n.dynamicContentReadOnly);
       return;
     }
@@ -3142,7 +3235,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
     RoomMediaEntry entry,
     int direction,
   ) async {
-    if (!_canMutateCurrentMediaScope || entry.isProviderDynamicEntry) {
+    if (!_canMutateCurrentMediaScope || entry.isProviderDynamicItem) {
       AppNotifications.showInfo(context, context.l10n.dynamicContentReadOnly);
       return;
     }
@@ -3357,12 +3450,14 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
     String initialName = '',
     String initialDescription = '',
     provider_common.PlaybackProxyPolicy? playbackProxyPolicy,
+    client_enum.PlaylistBrowseAccessMode? playlistBrowseAccessMode,
   }) {
     final nameController = TextEditingController(text: initialName);
     final descriptionController = TextEditingController(
       text: initialDescription,
     );
     var playbackProxyMode = playbackProxyPolicy?.currentMode;
+    var selectedPlaylistBrowseAccessMode = playlistBrowseAccessMode;
     return AppDialogs.showStyledDialog<_EntryEditResult>(
       context: context,
       title: title,
@@ -3384,6 +3479,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
                       nameController.text.trim(),
                       descriptionController.text.trim(),
                       playbackProxyMode,
+                      selectedPlaylistBrowseAccessMode,
                     ),
                   );
                 },
@@ -3404,6 +3500,35 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
                       setDialogState(() => playbackProxyMode = value),
                 ),
               ],
+              if (selectedPlaylistBrowseAccessMode != null) ...[
+                const SizedBox(height: 16),
+                AppSelect<client_enum.PlaylistBrowseAccessMode>(
+                  value: selectedPlaylistBrowseAccessMode,
+                  label: context.l10n.playlistBrowseAccess,
+                  description: context.l10n.playlistBrowseAccessDescription,
+                  prefixIcon: Icons.visibility_outlined,
+                  options: {
+                    context.l10n.playlistBrowseAccessModeDefault: client_enum
+                        .PlaylistBrowseAccessMode
+                        .PLAYLIST_BROWSE_ACCESS_MODE_DEFAULT,
+                    context.l10n.playlistBrowseAccessModeRoomMembers:
+                        client_enum
+                            .PlaylistBrowseAccessMode
+                            .PLAYLIST_BROWSE_ACCESS_MODE_ROOM_MEMBERS,
+                    context.l10n.playlistBrowseAccessModeCreatorOnly:
+                        client_enum
+                            .PlaylistBrowseAccessMode
+                            .PLAYLIST_BROWSE_ACCESS_MODE_CREATOR_ONLY,
+                  },
+                  onChanged: (value) {
+                    if (value != null) {
+                      setDialogState(
+                        () => selectedPlaylistBrowseAccessMode = value,
+                      );
+                    }
+                  },
+                ),
+              ],
             ],
           ),
         ),
@@ -3418,6 +3543,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
               nameController.text.trim(),
               descriptionController.text.trim(),
               playbackProxyMode,
+              selectedPlaylistBrowseAccessMode,
             ),
           ),
           text: context.l10n.save,
@@ -3750,7 +3876,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
     String title,
     String? subtitle,
     bool value,
-    ValueChanged<bool> onChanged,
+    ValueChanged<bool>? onChanged,
     ThemeData theme,
     bool isDark,
   ) {
@@ -3968,6 +4094,17 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
           isDark: isDark,
           children: [
             _buildSwitchItem(
+              context.l10n.publicRoom,
+              _isPublic
+                  ? context.l10n.publicRoomVisibilityDescription
+                  : context.l10n.privateRoomVisibilityDescription,
+              _isPublic,
+              _visibilityUpdating ? null : _updateRoomVisibility,
+              theme,
+              isDark,
+            ),
+            _buildDivider(theme),
+            _buildSwitchItem(
               context.l10n.allowGuestJoin,
               context.l10n.guestTokenCurrentRoomOnly,
               _allowGuestJoin,
@@ -4029,15 +4166,6 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
               null,
               _chatEnabled,
               (v) => setState(() => _chatEnabled = v),
-              theme,
-              isDark,
-            ),
-            _buildDivider(theme),
-            _buildSwitchItem(
-              context.l10n.danmaku,
-              null,
-              _danmakuEnabled,
-              (v) => setState(() => _danmakuEnabled = v),
               theme,
               isDark,
             ),
@@ -4753,7 +4881,6 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
           'allowAutoJoin': _settings.allowAutoJoin,
           'requireApproval': _settings.requireApproval,
           'chatEnabled': _settings.chatEnabled,
-          'danmakuEnabled': _settings.danmakuEnabled,
           'maxMembers': _settings.maxMembers,
           'memberPermissions': _settings.effectiveMemberPermissions,
           'guestPermissions': _settings.effectiveGuestPermissions,
@@ -5764,7 +5891,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
     final canMutate =
         _canMutateCurrentMediaScope &&
         isPersisted &&
-        !entry.isProviderDynamicEntry;
+        !entry.isProviderDynamicItem;
     final playlistIndex = entry.id.startsWith('pl_')
         ? _mediaPage?.playlists.indexWhere((item) => item.id == entry.id) ?? -1
         : -1;
@@ -6976,8 +7103,9 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
                       ),
                       _buildDetailLine(
                         context.l10n.members,
-                        context.l10n.onlineMemberSummary(
-                          room?.viewerCount ?? 0,
+                        context.l10n.roomPresenceWithMembers(
+                          room?.onlineMemberCount ?? 0,
+                          room?.onlineGuestCount ?? 0,
                           room?.memberCount ?? 0,
                         ),
                       ),
@@ -7498,8 +7626,14 @@ class _EntryEditResult {
   final String name;
   final String description;
   final source_enum.PlaybackProxyMode? playbackProxyMode;
+  final client_enum.PlaylistBrowseAccessMode? playlistBrowseAccessMode;
 
-  const _EntryEditResult(this.name, this.description, [this.playbackProxyMode]);
+  const _EntryEditResult(
+    this.name,
+    this.description, [
+    this.playbackProxyMode,
+    this.playlistBrowseAccessMode,
+  ]);
 }
 
 class _MediaMoveTarget {

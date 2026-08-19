@@ -379,6 +379,27 @@ class AppLocalizationsEn extends AppLocalizations {
   String get accessMethod => 'Access method';
 
   @override
+  String get roomVisibility => 'Room visibility';
+
+  @override
+  String get publicRoomVisibilityDescription =>
+      'Listed in discovery; anonymous guests can access when guest joining is enabled';
+
+  @override
+  String get privateRoomVisibilityDescription =>
+      'Hidden from discovery and unavailable to anonymous guests';
+
+  @override
+  String get passwordProtection => 'Password protection';
+
+  @override
+  String get noRoomPassword => 'No password';
+
+  @override
+  String get noRoomPasswordJoinHint =>
+      'Eligible members can join without a password';
+
+  @override
   String get serverRequiresPassword => 'The server requires a password';
 
   @override
@@ -421,8 +442,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get publicRoomAccessHint => 'Eligible members can join a public room';
 
   @override
+  String get privateRoomAccessHint =>
+      'This room is hidden from discovery and unavailable to anonymous guests';
+
+  @override
   String get createRoomSubtitle =>
-      'Set the room name, description, and access method';
+      'Set the room name, visibility, and password protection';
 
   @override
   String get publicRoom => 'Public room';
@@ -501,8 +526,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get roomJoinCooldown => 'Join unavailable';
 
   @override
-  String roomAudienceWithMembers(int viewerCount, int memberCount) {
-    return '$viewerCount online / $memberCount members';
+  String roomPresenceSummary(int onlineMembers, int onlineGuests) {
+    return 'Online: $onlineMembers members · $onlineGuests guests';
+  }
+
+  @override
+  String roomOnlineTotal(int count) {
+    return 'Online: $count';
+  }
+
+  @override
+  String roomPresenceWithMembers(
+    int onlineMembers,
+    int onlineGuests,
+    int memberCount,
+  ) {
+    return '$onlineMembers members online · $onlineGuests guests online · $memberCount members total';
   }
 
   @override
@@ -1147,6 +1186,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get danmaku => 'Danmaku';
 
   @override
+  String get videoDanmaku => 'Video danmaku';
+
+  @override
+  String get chatDanmaku => 'Chat danmaku';
+
+  @override
   String get danmakuHint => 'Send a danmaku for this moment...';
 
   @override
@@ -1168,10 +1213,88 @@ class AppLocalizationsEn extends AppLocalizations {
   String get subtitles => 'Subtitles';
 
   @override
-  String get disableDanmaku => 'Turn off danmaku';
+  String get disableVideoDanmaku => 'Turn off video danmaku';
 
   @override
-  String get enableDanmaku => 'Turn on danmaku';
+  String get enableVideoDanmaku => 'Turn on video danmaku';
+
+  @override
+  String get disableChatDanmaku => 'Turn off chat danmaku';
+
+  @override
+  String get enableChatDanmaku => 'Turn on chat danmaku';
+
+  @override
+  String get overlaySettings => 'Subtitle and danmaku settings';
+
+  @override
+  String get subtitleSettings => 'Subtitle settings';
+
+  @override
+  String get videoDanmakuSettings => 'Video danmaku settings';
+
+  @override
+  String get chatDanmakuSettings => 'Chat danmaku settings';
+
+  @override
+  String get subtitleStyle => 'Subtitle style';
+
+  @override
+  String get subtitleSize => 'Subtitle size';
+
+  @override
+  String get subtitleOpacity => 'Subtitle opacity';
+
+  @override
+  String get subtitleBackground => 'Subtitle background';
+
+  @override
+  String get subtitlePosition => 'Subtitle position';
+
+  @override
+  String get subtitleColor => 'Subtitle color';
+
+  @override
+  String get subtitleBackgroundColor => 'Subtitle background color';
+
+  @override
+  String get subtitleOutline => 'Subtitle outline';
+
+  @override
+  String get videoDanmakuStyle => 'Video danmaku style';
+
+  @override
+  String get chatDanmakuStyle => 'Chat danmaku style';
+
+  @override
+  String get danmakuSize => 'Danmaku size';
+
+  @override
+  String get danmakuOpacity => 'Danmaku opacity';
+
+  @override
+  String get danmakuSpeed => 'Danmaku speed';
+
+  @override
+  String get danmakuArea => 'Danmaku area';
+
+  @override
+  String get danmakuOutline => 'Danmaku outline';
+
+  @override
+  String get danmakuMassiveMode => 'Massive danmaku';
+
+  @override
+  String get danmakuTop => 'Top danmaku';
+
+  @override
+  String get danmakuBottom => 'Bottom danmaku';
+
+  @override
+  String get danmakuScroll => 'Scrolling danmaku';
+
+  @override
+  String get resetOverlaySettings => 'Reset overlay style';
 
   @override
   String get reload => 'Reload';
@@ -1480,6 +1603,29 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get streamMode => 'Stream mode';
+
+  @override
+  String get publishKeyType => 'Publish key type';
+
+  @override
+  String get singleUsePublishKey => 'One-time key';
+
+  @override
+  String get expiringPublishKey => 'Reusable until expiration';
+
+  @override
+  String get permanentPublishKey => 'Never expires';
+
+  @override
+  String get permanentPublishKeyDescription =>
+      'Anyone with this key can publish until the server JWT secret changes.';
+
+  @override
+  String get noExpiration => 'Never expires';
+
+  @override
+  String get publishKeyExpirationMustBeFuture =>
+      'Expiration time must be in the future.';
 
   @override
   String get audioAndVideo => 'Audio and video';
@@ -3215,6 +3361,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get playlistSubscribeFailed => 'Could not subscribe to the playlist';
 
   @override
+  String get playlistBrowseAccessDenied =>
+      'You do not have permission to browse this playlist';
+
+  @override
   String get switchedAndPlaying => 'Switched and started playback';
 
   @override
@@ -4218,14 +4368,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get review => 'Review';
 
   @override
-  String roomMemberUpdateSummary(int members, String time) {
+  String roomMemberUpdateSummary(int online, int members, String time) {
     String _temp0 = intl.Intl.pluralLogic(
       members,
       locale: localeName,
       other: '$members members',
       one: '1 member',
     );
-    return '$_temp0 · Updated $time';
+    return '$online online · $_temp0 · Updated $time';
   }
 
   @override
@@ -4311,6 +4461,19 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsUpdated => 'Settings updated';
+
+  @override
+  String get roomVisibilityUpdated => 'Room visibility updated';
+
+  @override
+  String get makeRoomPrivate => 'Make room private?';
+
+  @override
+  String get makeRoomPrivateConfirmation =>
+      'The room will be removed from discovery and current anonymous guests will be disconnected.';
+
+  @override
+  String get makePrivate => 'Make private';
 
   @override
   String updateFailed(String error) {
@@ -4554,6 +4717,22 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get editPlaylist => 'Edit playlist';
+
+  @override
+  String get playlistBrowseAccess => 'Browse access';
+
+  @override
+  String get playlistBrowseAccessDescription =>
+      'Default allows room members to browse static playlists and limits dynamic playlists to their creator.';
+
+  @override
+  String get playlistBrowseAccessModeDefault => 'Default';
+
+  @override
+  String get playlistBrowseAccessModeRoomMembers => 'Room members';
+
+  @override
+  String get playlistBrowseAccessModeCreatorOnly => 'Creator only';
 
   @override
   String get editMedia => 'Edit media';
@@ -5223,7 +5402,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get activeUsers => 'Active users';
 
   @override
-  String get onlineUsers => 'Online users';
+  String get onlineMembersLabel => 'Online members';
+
+  @override
+  String get onlineGuestsLabel => 'Online guests';
 
   @override
   String get bannedUsers => 'Banned users';

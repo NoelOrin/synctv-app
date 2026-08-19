@@ -9,6 +9,10 @@ final class SyncTvResourceUrlResolver implements ResourceUrlResolver {
       SyncTvService.resolveResourceUrl(resourceUrl);
 
   @override
+  bool isServerResource(String resourceUrl) =>
+      isServerApiResourceUrl(resolve(resourceUrl), SyncTvService.baseUrl);
+
+  @override
   Map<String, String> get authenticatedHeaders =>
       SyncTvService.authenticatedResourceHeaders;
 }

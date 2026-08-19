@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:canvas_danmaku/models/danmaku_option.dart';
 import 'package:synctv_app/core/presentation/notifications/app_notifications.dart';
 import 'package:synctv_app/core/time/synced_clock.dart';
 import 'package:video_player/video_player.dart';
@@ -21,28 +22,12 @@ import 'package:synctv_app/features/room/presentation/danmaku/acfun_danmaku_code
 import 'package:synctv_app/features/room/domain/playback_resource_localizer.dart';
 import 'package:synctv_app/core/network/resource_url_resolver.dart';
 import 'package:synctv_app/features/room/application/player_volume_preferences_controller.dart';
+import 'package:synctv_app/features/room/application/playback_overlay_preferences_controller.dart';
+import 'package:synctv_app/features/media_p2p/application/p2p_media_preferences_controller.dart';
 import 'package:synctv_app/contracts/synctv_models.dart';
 import 'package:synctv_app/features/room/presentation/widgets/playback_context_menu.dart';
 import 'package:synctv_app/features/room/presentation/widgets/playback_diagnostics.dart';
 import 'package:synctv_app/features/room/presentation/widgets/player_control_popup_style.dart';
-
-/// Returns the letterboxed video rectangle used by the player overlays.
-Size videoContentSize(Size viewport, {double aspectRatio = 16 / 9}) {
-  if (viewport.isEmpty || !aspectRatio.isFinite || aspectRatio <= 0) {
-    return Size.zero;
-  }
-  final width = min(viewport.width, viewport.height * aspectRatio);
-  return Size(width, width / aspectRatio);
-}
-
-Color subtitleBackgroundColor(double opacity, {int color = 0xFF000000}) {
-  final normalized = opacity.isFinite
-      ? opacity.clamp(0.0, 1.0).toDouble()
-      : 0.0;
-  return normalized <= 0
-      ? Colors.transparent
-      : Color(color).withValues(alpha: normalized);
-}
 
 class DanmakuController extends ChangeNotifier {
   DanmakuController(
@@ -104,6 +89,10 @@ class DanmakuController extends ChangeNotifier {
         !preserveLoadedDocument ||
         (!_documentLoaded && (!_documentLoading || !requestedDocumentMatches));
     if (shouldLoadDocument) {
+      if (!preserveLoadedDocument) {
+        _items.clear();
+        notifyListeners();
+      }
       _loadedDanmakuUrl = danmakuUrl;
       _loadedDanmakuHeaders = Map<String, String>.from(danmakuHeaders);
       _documentLoaded = false;
@@ -154,7 +143,16 @@ class DanmakuController extends ChangeNotifier {
   }
 
   String _danmakuKey(DanmakuItem item) {
-    return '${item.startTime.inMilliseconds}|${item.text}|${item.type.index}';
+    return '${item.origin.index}|${item.startTime.inMilliseconds}|'
+        '${item.text}|${item.type.index}';
+  }
+
+  void replaceVideoItems(List<DanmakuItem> newItems) {
+    _items = [
+      ..._items.where((item) => item.origin != DanmakuOrigin.video),
+      ...newItems,
+    ];
+    notifyListeners();
   }
 
   bool _sameHeaders(Map<String, String> a, Map<String, String> b) {
@@ -217,8 +215,7 @@ class DanmakuController extends ChangeNotifier {
   void _parseDanmaku(String content) {
     final acFunItems = decodeAcFunDanmakuDocument(content);
     if (acFunItems != null) {
-      _items = acFunItems;
-      notifyListeners();
+      replaceVideoItems(acFunItems);
       return;
     }
     String normalized = content
@@ -270,8 +267,7 @@ class DanmakuController extends ChangeNotifier {
       }
     }
 
-    _items = newItems;
-    notifyListeners();
+    replaceVideoItems(newItems);
   }
 
   Future<void> _replaceDanmakuStream() async {
@@ -303,6 +299,10 @@ class DanmakuController extends ChangeNotifier {
               _sseSubscription = null;
               if (error is DanmakuAccessExpiredException) {
                 onStreamAccessExpired?.call();
+                return;
+              }
+              if (error is DanmakuAccessDeniedException) {
+                debugPrint('SSE access denied');
                 return;
               }
               debugPrint('SSE Error: $error');
@@ -342,7 +342,9 @@ class DanmakuController extends ChangeNotifier {
       if (data is String) {
         text = data;
       } else if (data is Map) {
-        text = data['text'] ?? '';
+        // Bilibili live events expose their chat body as `message`, while
+        // the other live providers use `text`.
+        text = (data['text'] ?? data['message'] ?? '').toString();
         if (data['color'] != null) {
           try {
             String c = data['color'].toString();
@@ -414,6 +416,8 @@ class CustomVideoPlayer extends StatefulWidget {
   final VideoPlayerInteractionMode interactionMode;
   final ResourceUrlResolver resourceUrlResolver;
   final PlayerVolumePreferencesController volumePreferences;
+  final PlaybackOverlayPreferencesController? overlayPreferences;
+  final P2pMediaPreferencesController? p2pMediaPreferences;
   final SubtitleSource subtitleSource;
 
   const CustomVideoPlayer({
@@ -421,6 +425,8 @@ class CustomVideoPlayer extends StatefulWidget {
     required this.controller,
     required this.title,
     required this.volumePreferences,
+    this.overlayPreferences,
+    this.p2pMediaPreferences,
     required this.subtitleSource,
     this.danmakuController,
     this.subtitles,
@@ -633,26 +639,183 @@ class _PlayerOverflowSwitchRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(4),
-      onTap: () => onChanged(!value),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 18, color: Colors.white),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white, fontSize: 13),
+    final switchTheme = SwitchTheme.of(context).copyWith(
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      thumbColor: WidgetStatePropertyAll(
+        value ? const Color(0xFF11131B) : Colors.white70,
+      ),
+      trackColor: WidgetStatePropertyAll(
+        value ? const Color(0xFF9BA8FF) : Colors.white24,
+      ),
+      trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
+    );
+    return MergeSemantics(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(4),
+        onTap: () => onChanged(!value),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 18, color: Colors.white),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                ),
+              ),
+              Theme(
+                data: Theme.of(context).copyWith(switchTheme: switchTheme),
+                child: Switch(
+                  value: value,
+                  onChanged: onChanged,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlayerOverflowActionRow extends StatelessWidget {
+  const _PlayerOverflowActionRow({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      enabled: onPressed != null,
+      label: label,
+      onTap: onPressed,
+      child: ExcludeSemantics(
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(4),
+            onTap: onPressed,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: [
+                  Icon(icon, size: 18, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                    ),
+                  ),
+                ],
               ),
             ),
-            Switch(value: value, onChanged: onChanged),
-          ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlayerSubtitleSelectionRow extends StatelessWidget {
+  const _PlayerSubtitleSelectionRow({
+    required this.label,
+    required this.selected,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String label;
+  final bool selected;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = selected
+        ? Colors.white
+        : Colors.white.withValues(alpha: 0.9);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Semantics(
+        button: true,
+        label: label,
+        onTap: onPressed,
+        child: ExcludeSemantics(
+          child: Material(
+            color: selected ? const Color(0xFF30304A) : const Color(0xFF25252F),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+              side: BorderSide(
+                color: selected
+                    ? const Color(0xFF9BA8FF)
+                    : Colors.white.withValues(alpha: 0.08),
+                width: selected ? 1.2 : 1,
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onPressed,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                child: Row(
+                  children: [
+                    Icon(icon, color: foreground, size: 20),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: foreground,
+                          fontSize: 14,
+                          fontWeight: selected
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 160),
+                      child: selected
+                          ? const Icon(
+                              Icons.check_circle_rounded,
+                              key: ValueKey('selected'),
+                              color: Color(0xFF9BA8FF),
+                              size: 20,
+                            )
+                          : const SizedBox(
+                              key: ValueKey('unselected'),
+                              width: 20,
+                              height: 20,
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -809,8 +972,8 @@ class PictureInPicturePlaybackSurface extends StatefulWidget {
     super.key,
     required this.controller,
     required this.danmakuController,
+    this.overlayPreferences,
     required this.emptyState,
-    this.danmakuEnabled = true,
     this.exitTooltip,
     this.volumeTooltip,
     this.playbackOptionsControl,
@@ -831,8 +994,8 @@ class PictureInPicturePlaybackSurface extends StatefulWidget {
 
   final VideoPlayerController? controller;
   final DanmakuController danmakuController;
+  final PlaybackOverlayPreferencesController? overlayPreferences;
   final Widget emptyState;
-  final bool danmakuEnabled;
   final String? exitTooltip;
   final String? volumeTooltip;
   final Widget? playbackOptionsControl;
@@ -859,6 +1022,21 @@ class _PictureInPicturePlaybackSurfaceState
     extends State<PictureInPicturePlaybackSurface> {
   bool _showControls = false;
   double? _pendingSeekSeconds;
+  late PlaybackOverlayPreferenceValues _overlayStyle;
+
+  @override
+  void initState() {
+    super.initState();
+    _overlayStyle =
+        widget.overlayPreferences?.value ??
+        const PlaybackOverlayPreferenceValues();
+    widget.overlayPreferences?.addListener(_onOverlayPreferencesChanged);
+  }
+
+  void _onOverlayPreferencesChanged() {
+    if (!mounted || widget.overlayPreferences == null) return;
+    setState(() => _overlayStyle = widget.overlayPreferences!.value);
+  }
 
   Future<void> _setVolume(double volume) async {
     final controller = widget.controller;
@@ -883,6 +1061,21 @@ class _PictureInPicturePlaybackSurfaceState
     if (!identical(widget.controller, oldWidget.controller)) {
       _pendingSeekSeconds = null;
     }
+    if (widget.overlayPreferences != oldWidget.overlayPreferences) {
+      oldWidget.overlayPreferences?.removeListener(
+        _onOverlayPreferencesChanged,
+      );
+      widget.overlayPreferences?.addListener(_onOverlayPreferencesChanged);
+      _overlayStyle =
+          widget.overlayPreferences?.value ??
+          const PlaybackOverlayPreferenceValues();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.overlayPreferences?.removeListener(_onOverlayPreferencesChanged);
+    super.dispose();
   }
 
   Future<void> _togglePlayback() async {
@@ -1275,17 +1468,44 @@ class _PictureInPicturePlaybackSurfaceState
                             aspectRatio: videoController.value.aspectRatio > 0
                                 ? videoController.value.aspectRatio
                                 : 16 / 9,
-                            child: VideoPlayer(videoController),
-                          ),
-                        ),
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            child: ExcludeSemantics(
-                              child: DanmakuOverlay(
-                                videoController: videoController,
-                                danmakuList: widget.danmakuController.items,
-                                isEnabled: widget.danmakuEnabled,
-                              ),
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                VideoPlayer(videoController),
+                                IgnorePointer(
+                                  child: Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      if (_overlayStyle.videoDanmakuEnabled)
+                                        DanmakuOverlay(
+                                          key: const ValueKey(
+                                            'pip_video_danmaku_overlay',
+                                          ),
+                                          videoController: videoController,
+                                          danmakuList:
+                                              widget.danmakuController.items,
+                                          origin: DanmakuOrigin.video,
+                                          option: _danmakuOption(
+                                            _overlayStyle.videoDanmakuStyle,
+                                          ),
+                                        ),
+                                      if (_overlayStyle.chatDanmakuEnabled)
+                                        DanmakuOverlay(
+                                          key: const ValueKey(
+                                            'pip_chat_danmaku_overlay',
+                                          ),
+                                          videoController: videoController,
+                                          danmakuList:
+                                              widget.danmakuController.items,
+                                          origin: DanmakuOrigin.chat,
+                                          option: _danmakuOption(
+                                            _overlayStyle.chatDanmakuStyle,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -1410,7 +1630,8 @@ class PlayerControlVisibility {
     required this.showSync,
     required this.showPlaybackRoute,
     required this.showSpeed,
-    required this.showDanmaku,
+    required this.showVideoDanmaku,
+    required this.showChatDanmaku,
     required this.showSubtitles,
     required this.showPictureInPicture,
     required this.showSendDanmaku,
@@ -1428,10 +1649,11 @@ class PlayerControlVisibility {
       showSync: width >= 520,
       showPlaybackRoute: width >= 600,
       showSpeed: width >= 680,
-      showDanmaku: width >= 740,
-      showSubtitles: width >= 800,
-      showPictureInPicture: width >= 860,
-      showSendDanmaku: width >= 920,
+      showVideoDanmaku: width >= 740,
+      showChatDanmaku: false,
+      showSubtitles: width >= 860,
+      showPictureInPicture: width >= 920,
+      showSendDanmaku: width >= 980,
       showSettings: width >= 460,
     );
   }
@@ -1442,7 +1664,8 @@ class PlayerControlVisibility {
   final bool showSync;
   final bool showPlaybackRoute;
   final bool showSpeed;
-  final bool showDanmaku;
+  final bool showVideoDanmaku;
+  final bool showChatDanmaku;
   final bool showSubtitles;
   final bool showPictureInPicture;
   final bool showSendDanmaku;
@@ -1550,6 +1773,39 @@ Duration livePlaybackPosition({
   return Duration(seconds: elapsedSeconds > 0 ? elapsedSeconds : 0);
 }
 
+/// Returns the letterboxed video rectangle used by the player overlays.
+Size videoContentSize(Size viewport, {double aspectRatio = 16 / 9}) {
+  if (viewport.isEmpty || !aspectRatio.isFinite || aspectRatio <= 0) {
+    return Size.zero;
+  }
+  final width = min(viewport.width, viewport.height * aspectRatio);
+  return Size(width, width / aspectRatio);
+}
+
+Color subtitleBackgroundColor(double opacity, {int color = 0xFF000000}) {
+  final normalized = opacity.isFinite
+      ? opacity.clamp(0.0, 1.0).toDouble()
+      : 0.0;
+  return normalized <= 0
+      ? Colors.transparent
+      : Color(color).withValues(alpha: normalized);
+}
+
+DanmakuOption _danmakuOption(DanmakuOverlayStyle style) => DanmakuOption(
+  fontSize: style.fontSize,
+  opacity: style.opacity,
+  duration: style.duration,
+  area: style.area,
+  strokeWidth: style.strokeWidth,
+  massiveMode: style.massiveMode,
+  hideTop: style.hideTop,
+  hideBottom: style.hideBottom,
+  hideScroll: style.hideScroll,
+  safeArea: true,
+);
+
+enum _OverlaySettingsSection { subtitle, videoDanmaku, chatDanmaku }
+
 class _CustomVideoPlayerState extends State<CustomVideoPlayer>
     with SingleTickerProviderStateMixin {
   bool _showControls = true;
@@ -1561,7 +1817,9 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
   Timer? _hideTimer;
   bool _isDragging = false;
   bool _isVerticalDragging = false;
-  bool _showDanmaku = true;
+  bool _showVideoDanmaku = true;
+  bool _showChatDanmaku = true;
+  bool _p2pMediaEnabled = false;
   double _lastAudibleVolume = 1.0;
   Timer? _volumeOverlayHideTimer;
   final GlobalKey _volumeAnchorKey = GlobalKey();
@@ -1596,6 +1854,9 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
   bool _subtitlesDisabled = false;
   bool _subtitleLoaded = false;
   int _subtitleLoadGeneration = 0;
+  late PlaybackOverlayPreferenceValues _overlayPreferences;
+
+  PlaybackOverlayPreferenceValues get _overlayStyle => _overlayPreferences;
 
   bool get _isDesktopMode =>
       widget.interactionMode == VideoPlayerInteractionMode.desktop;
@@ -1611,6 +1872,14 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
     if (widget.isFullScreen) _applyFullScreenSystemUi(fullScreen: true);
     widget.controller.addListener(_videoListener);
     widget.danmakuController?.addListener(_onDanmakuUpdate);
+    _p2pMediaEnabled = widget.p2pMediaPreferences?.enabled ?? false;
+    widget.p2pMediaPreferences?.addListener(_onP2pPreferenceChanged);
+    _overlayPreferences =
+        widget.overlayPreferences?.value ??
+        const PlaybackOverlayPreferenceValues();
+    _showVideoDanmaku = _overlayPreferences.videoDanmakuEnabled;
+    _showChatDanmaku = _overlayPreferences.chatDanmakuEnabled;
+    widget.overlayPreferences?.addListener(_onOverlayPreferencesChanged);
     _restorePersistedVolume();
     _startHideTimer();
     unawaited(_loadDefaultSubtitles());
@@ -1618,6 +1887,20 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
 
   void _onDanmakuUpdate() {
     if (mounted) setState(() {});
+  }
+
+  void _onOverlayPreferencesChanged() {
+    if (!mounted || widget.overlayPreferences == null) return;
+    setState(() {
+      _overlayPreferences = widget.overlayPreferences!.value;
+      _showVideoDanmaku = _overlayPreferences.videoDanmakuEnabled;
+      _showChatDanmaku = _overlayPreferences.chatDanmakuEnabled;
+    });
+  }
+
+  void _onP2pPreferenceChanged() {
+    if (!mounted || widget.p2pMediaPreferences == null) return;
+    setState(() => _p2pMediaEnabled = widget.p2pMediaPreferences!.enabled);
   }
 
   @override
@@ -1635,6 +1918,22 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
     if (widget.danmakuController != oldWidget.danmakuController) {
       oldWidget.danmakuController?.removeListener(_onDanmakuUpdate);
       widget.danmakuController?.addListener(_onDanmakuUpdate);
+    }
+    if (widget.overlayPreferences != oldWidget.overlayPreferences) {
+      oldWidget.overlayPreferences?.removeListener(
+        _onOverlayPreferencesChanged,
+      );
+      widget.overlayPreferences?.addListener(_onOverlayPreferencesChanged);
+      _overlayPreferences =
+          widget.overlayPreferences?.value ??
+          const PlaybackOverlayPreferenceValues();
+      _showVideoDanmaku = _overlayPreferences.videoDanmakuEnabled;
+      _showChatDanmaku = _overlayPreferences.chatDanmakuEnabled;
+    }
+    if (widget.p2pMediaPreferences != oldWidget.p2pMediaPreferences) {
+      oldWidget.p2pMediaPreferences?.removeListener(_onP2pPreferenceChanged);
+      widget.p2pMediaPreferences?.addListener(_onP2pPreferenceChanged);
+      _p2pMediaEnabled = widget.p2pMediaPreferences?.enabled ?? false;
     }
 
     final oldSubtitleDelivery = _subtitleDelivery(
@@ -1672,6 +1971,8 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
     }
     widget.controller.removeListener(_videoListener);
     widget.danmakuController?.removeListener(_onDanmakuUpdate);
+    widget.p2pMediaPreferences?.removeListener(_onP2pPreferenceChanged);
+    widget.overlayPreferences?.removeListener(_onOverlayPreferencesChanged);
     _hideTimer?.cancel();
     _closeVolumeMenu();
     _overflowMenuFuture = null;
@@ -1772,6 +2073,7 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
     await _fetchAndParseSubtitles(
       url,
       generation: generation,
+      format: subtitle['format']?.toString(),
       headers: _headersFromDynamicMap(subtitle['headers']),
       p2pDelivery: subtitle['p2pDelivery'] is P2pResourceDelivery
           ? subtitle['p2pDelivery'] as P2pResourceDelivery
@@ -1793,6 +2095,7 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
   Future<void> _fetchAndParseSubtitles(
     String url, {
     required int generation,
+    String? format,
     Map<String, String> headers = const {},
     P2pResourceDelivery? p2pDelivery,
   }) async {
@@ -1825,7 +2128,10 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
         );
 
         // Determine format
-        if (content.contains('[Script Info]') || content.contains('[Events]')) {
+        if (_parseBilibiliJsonSubtitles(content, format: format)) {
+          // Bilibili player-v2 subtitle documents use JSON body entries.
+        } else if (content.contains('[Script Info]') ||
+            content.contains('[Events]')) {
           _parseAssSubtitles(content);
         } else {
           _parseSubtitles(content);
@@ -1984,6 +2290,49 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
     debugPrint('Parsed ${_subtitleItems.length} ASS subtitles');
   }
 
+  bool _parseBilibiliJsonSubtitles(String content, {String? format}) {
+    if (format?.trim().toLowerCase() != 'json') return false;
+    try {
+      final decoded = jsonDecode(content);
+      if (decoded is! Map || decoded['body'] is! List) return false;
+
+      final items = <_SubtitleItem>[];
+      for (final value in decoded['body'] as List) {
+        if (value is! Map) continue;
+        final startSeconds = _subtitleSeconds(value['from']);
+        final endSeconds = _subtitleSeconds(value['to']);
+        final text = sanitizeSubtitleText(value['content']?.toString() ?? '');
+        if (startSeconds == null ||
+            endSeconds == null ||
+            endSeconds < startSeconds ||
+            text.isEmpty) {
+          continue;
+        }
+        items.add(
+          _SubtitleItem(
+            Duration(milliseconds: (startSeconds * 1000).round()),
+            Duration(milliseconds: (endSeconds * 1000).round()),
+            text,
+          ),
+        );
+      }
+      _subtitleItems
+        ..clear()
+        ..addAll(items);
+      debugPrint('Parsed ${_subtitleItems.length} Bilibili subtitles');
+      return true;
+    } catch (error) {
+      debugPrint('Bilibili subtitle JSON parse error: $error');
+      return false;
+    }
+  }
+
+  double? _subtitleSeconds(Object? value) => switch (value) {
+    num value => value.toDouble(),
+    String value => double.tryParse(value),
+    _ => null,
+  };
+
   void _parseAssToDanmaku(String content) {
     if (widget.danmakuController == null) return;
 
@@ -2104,18 +2453,10 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
     _subtitleItems.clear();
 
     // Add to danmaku controller
-    widget.danmakuController!.clear();
-    widget.danmakuController!.addItems(danmakuItems);
+    widget.danmakuController!.replaceVideoItems(danmakuItems);
     debugPrint(
       'Parsed and added ${danmakuItems.length} danmaku items from ASS',
     );
-
-    // Enable danmaku if not already
-    if (!_showDanmaku) {
-      setState(() {
-        _showDanmaku = true;
-      });
-    }
   }
 
   Duration _parseAssDuration(String s) {
@@ -2359,26 +2700,96 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
     );
   }
 
-  void _toggleDanmaku() {
-    setState(() => _showDanmaku = !_showDanmaku);
+  void _toggleDanmaku(DanmakuOrigin source) {
+    final preferences = widget.overlayPreferences;
+    setState(() {
+      switch (source) {
+        case DanmakuOrigin.video:
+          _showVideoDanmaku = !_showVideoDanmaku;
+          break;
+        case DanmakuOrigin.chat:
+          _showChatDanmaku = !_showChatDanmaku;
+          break;
+      }
+    });
+    if (preferences == null) return;
+    final value = preferences.value.copyWith(
+      videoDanmakuEnabled: _showVideoDanmaku,
+      chatDanmakuEnabled: _showChatDanmaku,
+    );
+    unawaited(preferences.save(value));
   }
 
-  Widget _buildDanmakuControl(double iconSize, {VoidCallback? onChanged}) {
+  bool _danmakuEnabled(DanmakuOrigin source) => switch (source) {
+    DanmakuOrigin.video => _showVideoDanmaku,
+    DanmakuOrigin.chat => _showChatDanmaku,
+  };
+
+  Widget _buildDanmakuControl(
+    double iconSize, {
+    required DanmakuOrigin source,
+    VoidCallback? onChanged,
+  }) {
+    final enabled = _danmakuEnabled(source);
+    final isVideo = source == DanmakuOrigin.video;
     return _PlayerIconButton(
-      key: const Key('playback_danmaku_button'),
-      icon: Icons.comment_rounded,
-      tooltip: _showDanmaku
-          ? context.l10n.disableDanmaku
-          : context.l10n.enableDanmaku,
-      selected: _showDanmaku,
+      key: ValueKey(
+        isVideo
+            ? 'playback_video_danmaku_button'
+            : 'playback_chat_danmaku_button',
+      ),
+      icon: isVideo ? Icons.subtitles_rounded : Icons.forum_rounded,
+      tooltip: switch ((source, enabled)) {
+        (DanmakuOrigin.video, true) => context.l10n.disableVideoDanmaku,
+        (DanmakuOrigin.video, false) => context.l10n.enableVideoDanmaku,
+        (DanmakuOrigin.chat, true) => context.l10n.disableChatDanmaku,
+        (DanmakuOrigin.chat, false) => context.l10n.enableChatDanmaku,
+      },
+      selected: enabled,
       onPressed: () {
-        setState(() => _showDanmaku = !_showDanmaku);
+        _toggleDanmaku(source);
         onChanged?.call();
       },
       padding: widget.isFullScreen ? const EdgeInsets.all(8) : EdgeInsets.zero,
       constraints: widget.isFullScreen ? null : const BoxConstraints(),
       iconSize: widget.isFullScreen ? 24 : iconSize,
     );
+  }
+
+  Widget _buildP2pMediaControl(double iconSize) {
+    return _PlayerIconButton(
+      key: const Key('playback_p2p_media_button'),
+      icon: Icons.hub_rounded,
+      tooltip: context.l10n.p2pMedia,
+      selected: _p2pMediaEnabled,
+      onPressed: () => _setP2pMediaEnabled(!_p2pMediaEnabled),
+      padding: widget.isFullScreen ? const EdgeInsets.all(8) : EdgeInsets.zero,
+      constraints: widget.isFullScreen ? null : const BoxConstraints(),
+      iconSize: widget.isFullScreen ? 24 : iconSize,
+    );
+  }
+
+  Widget _buildOverlaySettingsControl(
+    double iconSize, {
+    required String tooltip,
+    required VoidCallback onPressed,
+    required Key key,
+  }) {
+    return _PlayerIconButton(
+      key: key,
+      icon: Icons.tune_rounded,
+      tooltip: tooltip,
+      onPressed: onPressed,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(),
+      iconSize: widget.isFullScreen ? 24 : iconSize,
+    );
+  }
+
+  void _setP2pMediaEnabled(bool enabled) {
+    final preferences = widget.p2pMediaPreferences;
+    if (preferences == null || preferences.enabled == enabled) return;
+    unawaited(preferences.setEnabled(enabled));
   }
 
   Widget _buildSyncControl(double iconSize) {
@@ -2501,10 +2912,16 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
                                     controls[index].switchValue?.call() ??
                                     false,
                                 onChanged: (enabled) {
-                                  onSwitchChanged(enabled);
                                   if (controls[index].dismissOnSwitch) {
                                     Navigator.of(context).pop();
-                                  } else {
+                                    WidgetsBinding.instance
+                                        .addPostFrameCallback((_) {
+                                          onSwitchChanged(enabled);
+                                        });
+                                    return;
+                                  }
+                                  onSwitchChanged(enabled);
+                                  if (context.mounted) {
                                     setMenuState(() {});
                                   }
                                 },
@@ -2516,41 +2933,17 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
                                 'playback_overflow_control_slot_$index',
                               ),
                               height: 40,
-                              child: Row(
-                                children: [
-                                  SizedBox.square(
-                                    dimension: 40,
-                                    child: controls[index].build(
-                                      () => setMenuState(() {}),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: InkWell(
-                                      onTap: controls[index].onPressed == null
-                                          ? null
-                                          : () {
-                                              controls[index].onPressed!.call();
-                                              setMenuState(() {});
-                                            },
-                                      borderRadius: BorderRadius.circular(4),
-                                      child: Padding(
-                                        padding: const EdgeInsets.only(left: 8),
-                                        child: Align(
-                                          alignment: Alignment.centerLeft,
-                                          child: Text(
-                                            controls[index].label,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                              child: _PlayerOverflowActionRow(
+                                icon: controls[index].icon,
+                                label: controls[index].label,
+                                onPressed: controls[index].onPressed == null
+                                    ? null
+                                    : () {
+                                        controls[index].onPressed!.call();
+                                        if (context.mounted) {
+                                          setMenuState(() {});
+                                        }
+                                      },
                               ),
                             ),
                         ],
@@ -2567,6 +2960,7 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
     _overflowMenuFuture = future;
     unawaited(
       future.whenComplete(() {
+        if (!mounted) return;
         if (identical(_overflowMenuFuture, future)) {
           _overflowMenuFuture = null;
         }
@@ -3090,9 +3484,8 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
   }
 
   void _showSubtitleMenu() {
-    if (widget.subtitles == null || widget.subtitles!.isEmpty) {
-      return;
-    }
+    final hasSubtitles = widget.subtitles?.isNotEmpty == true;
+    if (!hasSubtitles) return;
 
     showAppBottomSheet<void>(
       context: context,
@@ -3101,55 +3494,584 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (context) => AppSafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                context.l10n.chooseSubtitles,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            AppTile(
-              prefix: const Icon(Icons.close, color: Colors.white),
-              title: Text(
-                context.l10n.disableSubtitles,
-                style: const TextStyle(color: Colors.white),
-              ),
-              onPressed: () {
-                _subtitlesDisabled = true;
-                _selectedSubtitleKey = null;
-                _clearSubtitles();
-                widget.onSubtitleP2pDeactivated?.call();
-                Navigator.pop(context);
-              },
-            ),
-            const AppDivider(color: Colors.white24, height: 1),
-            Flexible(
-              child: AppSingleChildScrollView(
-                child: Column(
-                  children: widget.subtitles!.entries.map((e) {
-                    final label = subtitleDisplayLabel(e.key, e.value);
-                    return AppTile(
-                      title: Text(
-                        label,
-                        style: const TextStyle(color: Colors.white),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.86,
+          ),
+          child: AppSingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.closed_caption_rounded,
+                        color: Colors.white,
+                        size: 22,
                       ),
-                      onPressed: () {
-                        unawaited(_loadSubtitleByKey(e.key));
-                        Navigator.pop(context);
-                      },
-                    );
-                  }).toList(),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          context.l10n.chooseSubtitles,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      AppIconButton(
+                        tooltip: context.l10n.close,
+                        onPressed: () => Navigator.pop(context),
+                        icon: Icons.close_rounded,
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+                _PlayerSubtitleSelectionRow(
+                  icon: Icons.subtitles_off_rounded,
+                  label: context.l10n.disableSubtitles,
+                  selected: _subtitlesDisabled || _selectedSubtitleKey == null,
+                  onPressed: () {
+                    _subtitlesDisabled = true;
+                    _selectedSubtitleKey = null;
+                    _clearSubtitles();
+                    widget.onSubtitleP2pDeactivated?.call();
+                    Navigator.pop(context);
+                  },
+                ),
+                for (final e in widget.subtitles!.entries)
+                  _PlayerSubtitleSelectionRow(
+                    icon: Icons.closed_caption_rounded,
+                    label: subtitleDisplayLabel(e.key, e.value),
+                    selected:
+                        !_subtitlesDisabled && _selectedSubtitleKey == e.key,
+                    onPressed: () {
+                      unawaited(_loadSubtitleByKey(e.key));
+                      Navigator.pop(context);
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showOverlaySettings(_OverlaySettingsSection section) {
+    if (widget.overlayPreferences == null) return;
+    showAppBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E2C),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => AppSafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.86,
+          ),
+          child: AppSingleChildScrollView(
+            child: _buildOverlaySettingsSection(context, section: section),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showSubtitleSettings() =>
+      _showOverlaySettings(_OverlaySettingsSection.subtitle);
+
+  void _showVideoDanmakuSettings() =>
+      _showOverlaySettings(_OverlaySettingsSection.videoDanmaku);
+
+  void _showChatDanmakuSettings() =>
+      _showOverlaySettings(_OverlaySettingsSection.chatDanmaku);
+
+  Widget _buildOverlaySettingsSection(
+    BuildContext context, {
+    required _OverlaySettingsSection section,
+  }) {
+    final preferences = widget.overlayPreferences;
+    if (preferences == null) return const SizedBox.shrink();
+    PlaybackOverlayPreferenceValues updateDanmakuStyle(
+      PlaybackOverlayPreferenceValues values,
+      DanmakuOverlayStyle Function(DanmakuOverlayStyle style) update,
+    ) => switch (section) {
+      _OverlaySettingsSection.videoDanmaku => values.copyWith(
+        videoDanmakuStyle: update(values.videoDanmakuStyle),
+      ),
+      _OverlaySettingsSection.chatDanmaku => values.copyWith(
+        chatDanmakuStyle: update(values.chatDanmakuStyle),
+      ),
+      _OverlaySettingsSection.subtitle => values,
+    };
+    Widget slider({
+      required String label,
+      required double value,
+      required double min,
+      required double max,
+      required PlaybackOverlayPreferenceValues Function(
+        PlaybackOverlayPreferenceValues style,
+        double value,
+      )
+      update,
+      String Function(double value)? valueLabel,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+                Text(
+                  valueLabel?.call(value) ?? value.toStringAsFixed(0),
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ],
+            ),
+            Slider(
+              value: value,
+              min: min,
+              max: max,
+              divisions: ((max - min) * 10).round(),
+              onChanged: (next) =>
+                  unawaited(preferences.save(update(preferences.value, next))),
             ),
           ],
+        ),
+      );
+    }
+
+    return ListenableBuilder(
+      listenable: preferences,
+      builder: (context, _) {
+        final values = preferences.value;
+        final danmakuStyle = switch (section) {
+          _OverlaySettingsSection.videoDanmaku => values.videoDanmakuStyle,
+          _OverlaySettingsSection.chatDanmaku => values.chatDanmakuStyle,
+          _OverlaySettingsSection.subtitle => const DanmakuOverlayStyle(),
+        };
+        return ExpansionTile(
+          key: const Key('playback_overlay_settings'),
+          initiallyExpanded: true,
+          tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+          title: Text(
+            section == _OverlaySettingsSection.subtitle
+                ? context.l10n.subtitleSettings
+                : section == _OverlaySettingsSection.videoDanmaku
+                ? context.l10n.videoDanmakuSettings
+                : context.l10n.chatDanmakuSettings,
+            style: const TextStyle(color: Colors.white),
+          ),
+          iconColor: Colors.white,
+          collapsedIconColor: Colors.white70,
+          children: [
+            if (section == _OverlaySettingsSection.subtitle) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 4,
+                  ),
+                  child: Text(
+                    context.l10n.subtitleStyle,
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                ),
+              ),
+              slider(
+                label: context.l10n.subtitleSize,
+                value: values.subtitleFontSize,
+                min: 12,
+                max: 48,
+                update: (s, v) => s.copyWith(subtitleFontSize: v),
+              ),
+              slider(
+                label: context.l10n.subtitleOpacity,
+                value: values.subtitleOpacity,
+                min: 0,
+                max: 1,
+                update: (s, v) => s.copyWith(subtitleOpacity: v),
+                valueLabel: (v) => '${(v * 100).round()}%',
+              ),
+              slider(
+                label: context.l10n.subtitleBackground,
+                value: values.subtitleBackgroundOpacity,
+                min: 0,
+                max: 1,
+                update: (s, v) => s.copyWith(subtitleBackgroundOpacity: v),
+                valueLabel: (v) => '${(v * 100).round()}%',
+              ),
+              slider(
+                label: context.l10n.subtitlePosition,
+                value: values.subtitleBottom,
+                min: 0,
+                max: 0.3,
+                update: (s, v) => s.copyWith(subtitleBottom: v),
+                valueLabel: (v) => '${(v * 100).round()}%',
+              ),
+              _buildColorSelector(
+                context,
+                label: context.l10n.subtitleColor,
+                value: Color(_overlayStyle.subtitleColor),
+                onChanged: (color) => unawaited(
+                  preferences.save(
+                    preferences.value.copyWith(subtitleColor: color.toARGB32()),
+                  ),
+                ),
+              ),
+              _buildColorSelector(
+                context,
+                label: context.l10n.subtitleBackgroundColor,
+                value: Color(_overlayStyle.subtitleBackgroundColor),
+                onChanged: (color) => unawaited(
+                  preferences.save(
+                    preferences.value.copyWith(
+                      subtitleBackgroundColor: color.toARGB32(),
+                    ),
+                  ),
+                ),
+              ),
+              slider(
+                label: context.l10n.subtitleOutline,
+                value: values.subtitleOutlineWidth,
+                min: 0,
+                max: 6,
+                update: (s, v) => s.copyWith(subtitleOutlineWidth: v),
+                valueLabel: (v) => v.toStringAsFixed(1),
+              ),
+            ],
+            if (section != _OverlaySettingsSection.subtitle) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 4,
+                  ),
+                  child: Text(
+                    section == _OverlaySettingsSection.videoDanmaku
+                        ? context.l10n.videoDanmakuStyle
+                        : context.l10n.chatDanmakuStyle,
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                ),
+              ),
+              slider(
+                label: context.l10n.danmakuSize,
+                value: danmakuStyle.fontSize,
+                min: 12,
+                max: 64,
+                update: (s, v) => updateDanmakuStyle(
+                  s,
+                  (style) => style.copyWith(fontSize: v),
+                ),
+              ),
+              slider(
+                label: context.l10n.danmakuOpacity,
+                value: danmakuStyle.opacity,
+                min: 0,
+                max: 1,
+                update: (s, v) => updateDanmakuStyle(
+                  s,
+                  (style) => style.copyWith(opacity: v),
+                ),
+                valueLabel: (v) => '${(v * 100).round()}%',
+              ),
+              slider(
+                label: context.l10n.danmakuSpeed,
+                value: danmakuStyle.duration,
+                min: 3,
+                max: 20,
+                update: (s, v) => updateDanmakuStyle(
+                  s,
+                  (style) => style.copyWith(duration: v),
+                ),
+                valueLabel: (v) => '${v.toStringAsFixed(0)}s',
+              ),
+              slider(
+                label: context.l10n.danmakuArea,
+                value: danmakuStyle.area,
+                min: 0.1,
+                max: 1,
+                update: (s, v) =>
+                    updateDanmakuStyle(s, (style) => style.copyWith(area: v)),
+                valueLabel: (v) => '${(v * 100).round()}%',
+              ),
+              slider(
+                label: context.l10n.danmakuOutline,
+                value: danmakuStyle.strokeWidth,
+                min: 0,
+                max: 6,
+                update: (s, v) => updateDanmakuStyle(
+                  s,
+                  (style) => style.copyWith(strokeWidth: v),
+                ),
+                valueLabel: (v) => v.toStringAsFixed(1),
+              ),
+              SwitchListTile(
+                value: danmakuStyle.massiveMode,
+                title: Text(
+                  context.l10n.danmakuMassiveMode,
+                  style: const TextStyle(color: Colors.white),
+                ),
+                onChanged: (value) => unawaited(
+                  preferences.save(
+                    updateDanmakuStyle(
+                      values,
+                      (style) => style.copyWith(massiveMode: value),
+                    ),
+                  ),
+                ),
+              ),
+              for (final entry in <(String, bool, ValueChanged<bool>)>[
+                (
+                  context.l10n.danmakuTop,
+                  !danmakuStyle.hideTop,
+                  (v) => unawaited(
+                    preferences.save(
+                      updateDanmakuStyle(
+                        values,
+                        (style) => style.copyWith(hideTop: !v),
+                      ),
+                    ),
+                  ),
+                ),
+                (
+                  context.l10n.danmakuBottom,
+                  !danmakuStyle.hideBottom,
+                  (v) => unawaited(
+                    preferences.save(
+                      updateDanmakuStyle(
+                        values,
+                        (style) => style.copyWith(hideBottom: !v),
+                      ),
+                    ),
+                  ),
+                ),
+                (
+                  context.l10n.danmakuScroll,
+                  !danmakuStyle.hideScroll,
+                  (v) => unawaited(
+                    preferences.save(
+                      updateDanmakuStyle(
+                        values,
+                        (style) => style.copyWith(hideScroll: !v),
+                      ),
+                    ),
+                  ),
+                ),
+              ])
+                SwitchListTile(
+                  value: entry.$2,
+                  title: Text(
+                    entry.$1,
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                  onChanged: entry.$3,
+                ),
+            ],
+            TextButton.icon(
+              onPressed: () => unawaited(preferences.reset()),
+              icon: const Icon(Icons.restore_rounded),
+              label: Text(context.l10n.resetOverlaySettings),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildColorSelector(
+    BuildContext context, {
+    required String label,
+    required Color value,
+    required ValueChanged<Color> onChanged,
+  }) {
+    const colors = <Color>[
+      Colors.white,
+      Colors.yellow,
+      Colors.cyan,
+      Colors.lightGreen,
+      Colors.orange,
+      Colors.red,
+    ];
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(label, style: const TextStyle(color: Colors.white)),
+          ),
+          for (final color in colors)
+            Padding(
+              padding: const EdgeInsets.only(left: 7),
+              child: Semantics(
+                label: label,
+                button: true,
+                selected: value.toARGB32() == color.toARGB32(),
+                child: InkWell(
+                  onTap: () => onChanged(color),
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    width: 22,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: value.toARGB32() == color.toARGB32()
+                            ? Colors.white
+                            : Colors.white38,
+                        width: value.toARGB32() == color.toARGB32() ? 2 : 1,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  List<Shadow> get _subtitleShadows {
+    final width = _overlayStyle.subtitleOutlineWidth;
+    if (width <= 0) return const [];
+    return [
+      Shadow(offset: Offset(width, 0), blurRadius: width, color: Colors.black),
+      Shadow(offset: Offset(-width, 0), blurRadius: width, color: Colors.black),
+      Shadow(offset: Offset(0, width), blurRadius: width, color: Colors.black),
+      Shadow(offset: Offset(0, -width), blurRadius: width, color: Colors.black),
+    ];
+  }
+
+  Widget _buildDanmakuOverlay(
+    DanmakuOrigin source,
+    DanmakuOverlayStyle style,
+    bool enabled,
+  ) {
+    final sourceKey = source == DanmakuOrigin.video ? 'video' : 'chat';
+    return DanmakuOverlay(
+      key: ValueKey(
+        '${sourceKey}_danmaku_${style.fontSize}_${style.opacity}_'
+        '${style.duration}_${style.area}_${style.strokeWidth}_'
+        '${style.massiveMode}_${style.hideTop}_${style.hideBottom}_'
+        '${style.hideScroll}',
+      ),
+      videoController: widget.controller,
+      danmakuList: widget.danmakuController?.items ?? const [],
+      origin: source,
+      isEnabled: enabled,
+      option: _danmakuOption(style),
+    );
+  }
+
+  Widget _buildVideoContent(VideoPlayerValue videoValue) {
+    final aspectRatio = videoValue.aspectRatio > 0
+        ? videoValue.aspectRatio
+        : 16 / 9;
+    return Center(
+      child: AspectRatio(
+        aspectRatio: aspectRatio,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final contentHeight = constraints.maxHeight;
+            final controlsInset = _showControls
+                ? (widget.isFullScreen ? 72.0 : 48.0)
+                : 8.0;
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                VideoPlayer(widget.controller),
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: ExcludeSemantics(
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          _buildDanmakuOverlay(
+                            DanmakuOrigin.video,
+                            _overlayStyle.videoDanmakuStyle,
+                            _showVideoDanmaku,
+                          ),
+                          _buildDanmakuOverlay(
+                            DanmakuOrigin.chat,
+                            _overlayStyle.chatDanmakuStyle,
+                            _showChatDanmaku,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                if (_currentSubtitle.isNotEmpty)
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    bottom: min(
+                      contentHeight * 0.28,
+                      max(
+                        8.0,
+                        controlsInset +
+                            contentHeight * _overlayStyle.subtitleBottom,
+                      ),
+                    ),
+                    child: Align(
+                      alignment: Alignment.center,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: subtitleBackgroundColor(
+                            _overlayStyle.subtitleBackgroundOpacity,
+                            color: _overlayStyle.subtitleBackgroundColor,
+                          ),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: constraints.maxWidth - 24,
+                            ),
+                            child: Text(
+                              _currentSubtitle,
+                              textScaler: const TextScaler.linear(1),
+                              style: TextStyle(
+                                color: Color(_overlayStyle.subtitleColor)
+                                    .withValues(
+                                      alpha: _overlayStyle.subtitleOpacity,
+                                    ),
+                                fontSize: _overlayStyle.subtitleFontSize,
+                                height: 1.2,
+                                shadows: _subtitleShadows,
+                              ),
+                              textAlign: TextAlign.center,
+                              maxLines: 4,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -3393,74 +4315,7 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
             child: Stack(
               alignment: Alignment.center,
               children: [
-                Center(
-                  child: AspectRatio(
-                    aspectRatio: videoValue.aspectRatio > 0
-                        ? videoValue.aspectRatio
-                        : 16 / 9,
-                    child: VideoPlayer(widget.controller),
-                  ),
-                ),
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: ExcludeSemantics(
-                      child: DanmakuOverlay(
-                        videoController: widget.controller,
-                        danmakuList: widget.danmakuController?.items ?? [],
-                        isEnabled: _showDanmaku,
-                      ),
-                    ),
-                  ),
-                ),
-                if (_currentSubtitle.isNotEmpty)
-                  Positioned(
-                    bottom: _showControls
-                        ? (widget.isFullScreen ? 112 : 76)
-                        : (widget.isFullScreen ? 40 : 10),
-                    left: 16,
-                    right: 16,
-                    child: AppPanelSurface(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      color: Colors.transparent,
-                      borderRadius: BorderRadius.zero,
-                      clipBehavior: Clip.none,
-                      child: Text(
-                        _currentSubtitle,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: widget.isFullScreen ? 24 : 14,
-                          shadows: const [
-                            Shadow(
-                              offset: Offset(0, 1),
-                              blurRadius: 3.0,
-                              color: Colors.black,
-                            ),
-                            Shadow(
-                              offset: Offset(0, -1),
-                              blurRadius: 3.0,
-                              color: Colors.black,
-                            ),
-                            Shadow(
-                              offset: Offset(1, 0),
-                              blurRadius: 3.0,
-                              color: Colors.black,
-                            ),
-                            Shadow(
-                              offset: Offset(-1, 0),
-                              blurRadius: 3.0,
-                              color: Colors.black,
-                            ),
-                          ],
-                        ),
-                        textAlign: TextAlign.center,
-                        maxLines: widget.isFullScreen ? 4 : 3,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
+                _buildVideoContent(videoValue),
                 if (_dragLabel.isNotEmpty)
                   AppPanelSurface(
                     padding: const EdgeInsets.all(16),
@@ -3633,8 +4488,7 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
                                           dismissOnSwitch: false,
                                           visible: visibility.showVolume,
                                         ),
-                                      if (widget.subtitles != null &&
-                                          widget.subtitles!.isNotEmpty)
+                                      if (widget.subtitles?.isNotEmpty == true)
                                         (
                                           label: context.l10n.subtitles,
                                           icon: Icons.closed_caption_rounded,
@@ -3667,20 +4521,132 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
                                           visible: visibility.showSpeed,
                                         ),
                                       (
-                                        label: context.l10n.danmaku,
-                                        icon: Icons.comment_rounded,
+                                        label: context.l10n.videoDanmaku,
+                                        icon: Icons.subtitles_rounded,
                                         build: (onChanged) =>
                                             _buildDanmakuControl(
                                               iconSize,
+                                              source: DanmakuOrigin.video,
                                               onChanged: onChanged,
                                             ),
-                                        onPressed: _toggleDanmaku,
-                                        switchValue: () => _showDanmaku,
+                                        onPressed: () =>
+                                            _toggleDanmaku(DanmakuOrigin.video),
+                                        switchValue: () => _showVideoDanmaku,
                                         onSwitchChanged: (_) =>
-                                            _toggleDanmaku(),
+                                            _toggleDanmaku(DanmakuOrigin.video),
                                         dismissOnSwitch: false,
-                                        visible: visibility.showDanmaku,
+                                        visible: visibility.showVideoDanmaku,
                                       ),
+                                      (
+                                        label: context.l10n.chatDanmaku,
+                                        icon: Icons.forum_rounded,
+                                        build: (onChanged) =>
+                                            _buildDanmakuControl(
+                                              iconSize,
+                                              source: DanmakuOrigin.chat,
+                                              onChanged: onChanged,
+                                            ),
+                                        onPressed: () =>
+                                            _toggleDanmaku(DanmakuOrigin.chat),
+                                        switchValue: () => _showChatDanmaku,
+                                        onSwitchChanged: (_) =>
+                                            _toggleDanmaku(DanmakuOrigin.chat),
+                                        dismissOnSwitch: false,
+                                        visible: false,
+                                      ),
+                                      if (widget.p2pMediaPreferences
+                                          case final p2pPreferences?)
+                                        (
+                                          label: context.l10n.p2pMedia,
+                                          icon: Icons.hub_rounded,
+                                          build: (_) =>
+                                              _buildP2pMediaControl(iconSize),
+                                          onPressed: () => unawaited(
+                                            p2pPreferences.setEnabled(
+                                              !p2pPreferences.enabled,
+                                            ),
+                                          ),
+                                          switchValue: () =>
+                                              p2pPreferences.enabled,
+                                          onSwitchChanged: (enabled) =>
+                                              unawaited(
+                                                p2pPreferences.setEnabled(
+                                                  enabled,
+                                                ),
+                                              ),
+                                          dismissOnSwitch: true,
+                                          visible: false,
+                                        ),
+                                      if (widget.overlayPreferences != null)
+                                        (
+                                          label: context.l10n.subtitleSettings,
+                                          icon: Icons.closed_caption_rounded,
+                                          build: (_) =>
+                                              _buildOverlaySettingsControl(
+                                                iconSize,
+                                                tooltip: context
+                                                    .l10n
+                                                    .subtitleSettings,
+                                                onPressed:
+                                                    _showSubtitleSettings,
+                                                key: const Key(
+                                                  'playback_subtitle_settings_button',
+                                                ),
+                                              ),
+                                          onPressed: _showSubtitleSettings,
+                                          switchValue: null,
+                                          onSwitchChanged: null,
+                                          dismissOnSwitch: false,
+                                          visible: false,
+                                        ),
+                                      if (widget.overlayPreferences != null &&
+                                          widget.danmakuController != null)
+                                        (
+                                          label:
+                                              context.l10n.videoDanmakuSettings,
+                                          icon: Icons.subtitles_rounded,
+                                          build: (_) =>
+                                              _buildOverlaySettingsControl(
+                                                iconSize,
+                                                tooltip: context
+                                                    .l10n
+                                                    .videoDanmakuSettings,
+                                                onPressed:
+                                                    _showVideoDanmakuSettings,
+                                                key: const Key(
+                                                  'playback_video_danmaku_settings_button',
+                                                ),
+                                              ),
+                                          onPressed: _showVideoDanmakuSettings,
+                                          switchValue: null,
+                                          onSwitchChanged: null,
+                                          dismissOnSwitch: false,
+                                          visible: false,
+                                        ),
+                                      if (widget.overlayPreferences != null &&
+                                          widget.danmakuController != null)
+                                        (
+                                          label:
+                                              context.l10n.chatDanmakuSettings,
+                                          icon: Icons.forum_rounded,
+                                          build: (_) =>
+                                              _buildOverlaySettingsControl(
+                                                iconSize,
+                                                tooltip: context
+                                                    .l10n
+                                                    .chatDanmakuSettings,
+                                                onPressed:
+                                                    _showChatDanmakuSettings,
+                                                key: const Key(
+                                                  'playback_chat_danmaku_settings_button',
+                                                ),
+                                              ),
+                                          onPressed: _showChatDanmakuSettings,
+                                          switchValue: null,
+                                          onSwitchChanged: null,
+                                          dismissOnSwitch: false,
+                                          visible: false,
+                                        ),
                                       if (widget.onSync != null)
                                         (
                                           label: widget.isLive

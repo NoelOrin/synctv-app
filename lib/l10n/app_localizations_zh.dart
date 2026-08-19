@@ -362,6 +362,24 @@ class AppLocalizationsZh extends AppLocalizations {
   String get accessMethod => '访问方式';
 
   @override
+  String get roomVisibility => '房间可见性';
+
+  @override
+  String get publicRoomVisibilityDescription => '显示在公开列表中；开启访客加入后，匿名访客可访问';
+
+  @override
+  String get privateRoomVisibilityDescription => '不显示在公开列表中，匿名访客无法访问';
+
+  @override
+  String get passwordProtection => '密码保护';
+
+  @override
+  String get noRoomPassword => '无密码';
+
+  @override
+  String get noRoomPasswordJoinHint => '符合条件的成员无需密码即可加入';
+
+  @override
   String get serverRequiresPassword => '服务器要求设置密码';
 
   @override
@@ -401,7 +419,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get publicRoomAccessHint => '公开房间可被允许访问的成员加入';
 
   @override
-  String get createRoomSubtitle => '设置房间名称、简介和访问方式';
+  String get privateRoomAccessHint => '此房间不会显示在公开列表中，匿名访客无法访问';
+
+  @override
+  String get createRoomSubtitle => '设置房间名称、可见性和密码保护';
 
   @override
   String get publicRoom => '公开房间';
@@ -476,8 +497,22 @@ class AppLocalizationsZh extends AppLocalizations {
   String get roomJoinCooldown => '暂时无法加入';
 
   @override
-  String roomAudienceWithMembers(int viewerCount, int memberCount) {
-    return '在线 $viewerCount / 成员 $memberCount';
+  String roomPresenceSummary(int onlineMembers, int onlineGuests) {
+    return '在线：成员 $onlineMembers · 游客 $onlineGuests';
+  }
+
+  @override
+  String roomOnlineTotal(int count) {
+    return '在线：$count';
+  }
+
+  @override
+  String roomPresenceWithMembers(
+    int onlineMembers,
+    int onlineGuests,
+    int memberCount,
+  ) {
+    return '在线成员 $onlineMembers · 在线游客 $onlineGuests · 共 $memberCount 名成员';
   }
 
   @override
@@ -1050,7 +1085,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get disableSubtitles => '关闭字幕';
 
   @override
-  String get danmaku => '弹幕数';
+  String get danmaku => '弹幕';
+
+  @override
+  String get videoDanmaku => '视频弹幕';
+
+  @override
+  String get chatDanmaku => '聊天弹幕';
 
   @override
   String get danmakuHint => '发个弹幕见证当下...';
@@ -1074,10 +1115,88 @@ class AppLocalizationsZh extends AppLocalizations {
   String get subtitles => '字幕';
 
   @override
-  String get disableDanmaku => '关闭弹幕';
+  String get disableVideoDanmaku => '关闭视频弹幕';
 
   @override
-  String get enableDanmaku => '开启弹幕';
+  String get enableVideoDanmaku => '开启视频弹幕';
+
+  @override
+  String get disableChatDanmaku => '关闭聊天弹幕';
+
+  @override
+  String get enableChatDanmaku => '开启聊天弹幕';
+
+  @override
+  String get overlaySettings => '字幕与弹幕设置';
+
+  @override
+  String get subtitleSettings => '字幕设置';
+
+  @override
+  String get videoDanmakuSettings => '视频弹幕设置';
+
+  @override
+  String get chatDanmakuSettings => '聊天弹幕设置';
+
+  @override
+  String get subtitleStyle => '字幕样式';
+
+  @override
+  String get subtitleSize => '字幕大小';
+
+  @override
+  String get subtitleOpacity => '字幕透明度';
+
+  @override
+  String get subtitleBackground => '字幕背景';
+
+  @override
+  String get subtitlePosition => '字幕位置';
+
+  @override
+  String get subtitleColor => '字幕颜色';
+
+  @override
+  String get subtitleBackgroundColor => '字幕背景颜色';
+
+  @override
+  String get subtitleOutline => '字幕描边';
+
+  @override
+  String get videoDanmakuStyle => '视频弹幕样式';
+
+  @override
+  String get chatDanmakuStyle => '聊天弹幕样式';
+
+  @override
+  String get danmakuSize => '弹幕大小';
+
+  @override
+  String get danmakuOpacity => '弹幕透明度';
+
+  @override
+  String get danmakuSpeed => '弹幕速度';
+
+  @override
+  String get danmakuArea => '弹幕区域';
+
+  @override
+  String get danmakuOutline => '弹幕描边';
+
+  @override
+  String get danmakuMassiveMode => '海量弹幕';
+
+  @override
+  String get danmakuTop => '顶部弹幕';
+
+  @override
+  String get danmakuBottom => '底部弹幕';
+
+  @override
+  String get danmakuScroll => '滚动弹幕';
+
+  @override
+  String get resetOverlaySettings => '恢复默认样式';
 
   @override
   String get reload => '重新加载';
@@ -1372,6 +1491,27 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get streamMode => '流模式';
+
+  @override
+  String get publishKeyType => '发布密钥类型';
+
+  @override
+  String get singleUsePublishKey => '一次性密钥';
+
+  @override
+  String get expiringPublishKey => '到期前可重复使用';
+
+  @override
+  String get permanentPublishKey => '永不过期';
+
+  @override
+  String get permanentPublishKeyDescription => '持有此密钥的用户可持续发布，直到服务端 JWT 密钥变更。';
+
+  @override
+  String get noExpiration => '永不过期';
+
+  @override
+  String get publishKeyExpirationMustBeFuture => '过期时间必须晚于当前时间。';
 
   @override
   String get audioAndVideo => '音频和视频';
@@ -3013,6 +3153,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get playlistSubscribeFailed => '播放列表订阅失败';
 
   @override
+  String get playlistBrowseAccessDenied => '你没有权限浏览此播放列表';
+
+  @override
   String get switchedAndPlaying => '已切换并播放';
 
   @override
@@ -3949,8 +4092,8 @@ class AppLocalizationsZh extends AppLocalizations {
   String get review => '审核';
 
   @override
-  String roomMemberUpdateSummary(int members, String time) {
-    return '成员 $members · 更新 $time';
+  String roomMemberUpdateSummary(int online, int members, String time) {
+    return '在线 $online · 成员 $members · 更新 $time';
   }
 
   @override
@@ -4036,6 +4179,18 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsUpdated => '设置已更新';
+
+  @override
+  String get roomVisibilityUpdated => '房间可见性已更新';
+
+  @override
+  String get makeRoomPrivate => '将房间设为非公开？';
+
+  @override
+  String get makeRoomPrivateConfirmation => '房间将从公开列表中移除，当前匿名访客会断开连接。';
+
+  @override
+  String get makePrivate => '设为非公开';
 
   @override
   String updateFailed(String error) {
@@ -4275,6 +4430,22 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get editPlaylist => '编辑播放列表';
+
+  @override
+  String get playlistBrowseAccess => '浏览权限';
+
+  @override
+  String get playlistBrowseAccessDescription =>
+      '默认情况下，静态播放列表允许房间成员浏览，动态播放列表仅允许创建者浏览。';
+
+  @override
+  String get playlistBrowseAccessModeDefault => '默认';
+
+  @override
+  String get playlistBrowseAccessModeRoomMembers => '房间成员';
+
+  @override
+  String get playlistBrowseAccessModeCreatorOnly => '仅创建者';
 
   @override
   String get editMedia => '编辑媒体';
@@ -4910,7 +5081,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get activeUsers => '活跃用户';
 
   @override
-  String get onlineUsers => '在线用户';
+  String get onlineMembersLabel => '在线成员';
+
+  @override
+  String get onlineGuestsLabel => '在线游客';
 
   @override
   String get bannedUsers => '封禁用户';

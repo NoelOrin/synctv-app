@@ -9,6 +9,8 @@ import 'package:synctv_app/l10n/l10n.dart';
 import 'package:synctv_app/features/providers/presentation/provider_gateway_scope.dart';
 import 'package:synctv_app/src/generated/proto/source_config.pbenum.dart'
     as source_enum;
+import 'package:synctv_app/src/generated/proto/client.pbenum.dart'
+    as client_enum;
 import 'package:synctv_app/theme/app_responsive.dart';
 import 'package:synctv_app/core/presentation/notifications/app_notifications.dart';
 import 'package:synctv_app/core/presentation/dialogs/app_dialogs.dart';
@@ -45,6 +47,7 @@ class AddMediaDialog extends StatefulWidget {
   final String? parentId;
   final ProviderDistributionPolicy distributionPolicy;
   final VoidCallback? onCompactClose;
+  final DateTime Function() now;
 
   const AddMediaDialog({
     super.key,
@@ -52,6 +55,7 @@ class AddMediaDialog extends StatefulWidget {
     this.parentId,
     this.distributionPolicy = ProviderDistributionPolicy.current,
     this.onCompactClose,
+    this.now = DateTime.now,
   });
 
   static Future<void> show(
@@ -227,6 +231,9 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
   source_enum.RtmpStreamMode _rtmpPublishMode =
       source_enum.RtmpStreamMode.RTMP_STREAM_MODE_DEFAULT;
   provider_common.PreparedMediaSource? _rtmpPreview;
+  client_enum.PublishKeyType _rtmpPublishKeyType =
+      client_enum.PublishKeyType.PUBLISH_KEY_TYPE_SINGLE_USE;
+  late DateTime _rtmpPublishExpiresAt;
   _LivePullProtocol _liveProxyProtocol = _LivePullProtocol.rtmp;
   source_enum.RtmpStreamMode _liveProxyRtmpMode =
       source_enum.RtmpStreamMode.RTMP_STREAM_MODE_DEFAULT;
@@ -324,6 +331,7 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
   @override
   void initState() {
     super.initState();
+    _rtmpPublishExpiresAt = widget.now().add(const Duration(hours: 1));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _selectedIndex == 0) {
         _urlFocusNode.requestFocus();
@@ -1655,6 +1663,45 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
             }
           },
         ),
+        const SizedBox(height: 18),
+        AppSelect<client_enum.PublishKeyType>(
+          key: const Key('rtmp-publish-key-type'),
+          value: _rtmpPublishKeyType,
+          label: context.l10n.publishKeyType,
+          prefixIcon: Icons.key_rounded,
+          options: {
+            context.l10n.singleUsePublishKey:
+                client_enum.PublishKeyType.PUBLISH_KEY_TYPE_SINGLE_USE,
+            context.l10n.expiringPublishKey:
+                client_enum.PublishKeyType.PUBLISH_KEY_TYPE_EXPIRING,
+            context.l10n.permanentPublishKey:
+                client_enum.PublishKeyType.PUBLISH_KEY_TYPE_PERMANENT,
+          },
+          enabled: !_isLoading,
+          onChanged: (value) {
+            if (value != null) setState(() => _rtmpPublishKeyType = value);
+          },
+        ),
+        const SizedBox(height: 12),
+        if (_rtmpPublishKeyType ==
+            client_enum.PublishKeyType.PUBLISH_KEY_TYPE_PERMANENT)
+          _buildInlineNotice(
+            theme,
+            icon: Icons.warning_amber_rounded,
+            title: context.l10n.permanentPublishKey,
+            subtitle: context.l10n.permanentPublishKeyDescription,
+            color: Colors.orange.shade700,
+          )
+        else
+          OutlinedButton.icon(
+            key: const Key('rtmp-publish-key-expiration'),
+            onPressed: _isLoading ? null : _selectRtmpPublishExpiration,
+            icon: const Icon(Icons.schedule_rounded),
+            label: Text(
+              '${context.l10n.expirationTime}: '
+              '${_formatDateTime(_rtmpPublishExpiresAt)}',
+            ),
+          ),
         const SizedBox(height: 18),
         if (_publicSettings != null) ...[
           _buildRtmpPublicSettingsPanel(theme, _publicSettings!),
@@ -3412,6 +3459,15 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
   Future<void> _addRtmpPublish() async {
     final preview = _rtmpPreview;
     if (preview == null || !preview.hasSource()) return;
+    if (_rtmpPublishKeyType !=
+            client_enum.PublishKeyType.PUBLISH_KEY_TYPE_PERMANENT &&
+        !_rtmpPublishExpiresAt.isAfter(widget.now())) {
+      AppNotifications.showWarning(
+        context,
+        context.l10n.publishKeyExpirationMustBeFuture,
+      );
+      return;
+    }
     setState(() => _isLoading = true);
     try {
       final name = _nameController.text.trim();
@@ -3424,6 +3480,12 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
       final publish = await providerGateway.createRtmpPublishKeyInfo(
         widget.roomId,
         mediaId,
+        keyType: _rtmpPublishKeyType,
+        expiresAt:
+            _rtmpPublishKeyType ==
+                client_enum.PublishKeyType.PUBLISH_KEY_TYPE_PERMANENT
+            ? null
+            : _rtmpPublishExpiresAt.millisecondsSinceEpoch ~/ 1000,
       );
       final streamInfo = await providerGateway.getRtmpStreamInfo(
         roomId: widget.roomId,
@@ -3597,9 +3659,19 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
                     : context.l10n.disabled,
               ),
             _buildRtmpInfoRow(
-              context.l10n.expirationTime,
-              _formatTimestamp(publish.expiresAt),
+              context.l10n.publishKeyType,
+              _publishKeyTypeLabel(publish.keyType),
             ),
+            if (publish.expiresAt case final expiresAt?)
+              _buildRtmpInfoRow(
+                context.l10n.expirationTime,
+                _formatTimestamp(expiresAt),
+              )
+            else
+              _buildRtmpInfoRow(
+                context.l10n.expirationTime,
+                context.l10n.noExpiration,
+              ),
             _buildRtmpInfoRow(
               context.l10n.currentStatus,
               streamInfo.active ? context.l10n.active : context.l10n.inactive,
@@ -3698,6 +3770,61 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
         '${date.day.toString().padLeft(2, '0')} '
         '${date.hour.toString().padLeft(2, '0')}:'
         '${date.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatDateTime(DateTime value) =>
+      _formatTimestamp(value.millisecondsSinceEpoch ~/ 1000);
+
+  String _publishKeyTypeLabel(client_enum.PublishKeyType value) {
+    switch (value) {
+      case client_enum.PublishKeyType.PUBLISH_KEY_TYPE_SINGLE_USE:
+        return context.l10n.singleUsePublishKey;
+      case client_enum.PublishKeyType.PUBLISH_KEY_TYPE_EXPIRING:
+        return context.l10n.expiringPublishKey;
+      case client_enum.PublishKeyType.PUBLISH_KEY_TYPE_PERMANENT:
+        return context.l10n.permanentPublishKey;
+      case client_enum.PublishKeyType.PUBLISH_KEY_TYPE_UNSPECIFIED:
+        return context.l10n.publishKeyType;
+    }
+    return context.l10n.publishKeyType;
+  }
+
+  Future<void> _selectRtmpPublishExpiration() async {
+    final now = widget.now();
+    final selectedDate = await showDatePicker(
+      context: context,
+      initialDate: _rtmpPublishExpiresAt.isBefore(now)
+          ? now.add(const Duration(hours: 1))
+          : _rtmpPublishExpiresAt,
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 3650)),
+    );
+    if (!mounted || selectedDate == null) return;
+
+    final selectedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_rtmpPublishExpiresAt),
+    );
+    if (!mounted || selectedTime == null) return;
+
+    final expiresAt = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      selectedTime.hour,
+      selectedTime.minute,
+    );
+    if (!expiresAt.isAfter(widget.now())) {
+      if (mounted) {
+        AppNotifications.showWarning(
+          context,
+          context.l10n.publishKeyExpirationMustBeFuture,
+        );
+      }
+      return;
+    }
+
+    setState(() => _rtmpPublishExpiresAt = expiresAt);
   }
 
   Future<void> _parseBilibili() async {

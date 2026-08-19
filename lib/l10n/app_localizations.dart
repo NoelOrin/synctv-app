@@ -728,6 +728,42 @@ abstract class AppLocalizations {
   /// **'Access method'**
   String get accessMethod;
 
+  /// No description provided for @roomVisibility.
+  ///
+  /// In en, this message translates to:
+  /// **'Room visibility'**
+  String get roomVisibility;
+
+  /// No description provided for @publicRoomVisibilityDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Listed in discovery; anonymous guests can access when guest joining is enabled'**
+  String get publicRoomVisibilityDescription;
+
+  /// No description provided for @privateRoomVisibilityDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Hidden from discovery and unavailable to anonymous guests'**
+  String get privateRoomVisibilityDescription;
+
+  /// No description provided for @passwordProtection.
+  ///
+  /// In en, this message translates to:
+  /// **'Password protection'**
+  String get passwordProtection;
+
+  /// No description provided for @noRoomPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'No password'**
+  String get noRoomPassword;
+
+  /// No description provided for @noRoomPasswordJoinHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Eligible members can join without a password'**
+  String get noRoomPasswordJoinHint;
+
   /// No description provided for @serverRequiresPassword.
   ///
   /// In en, this message translates to:
@@ -806,10 +842,16 @@ abstract class AppLocalizations {
   /// **'Eligible members can join a public room'**
   String get publicRoomAccessHint;
 
+  /// No description provided for @privateRoomAccessHint.
+  ///
+  /// In en, this message translates to:
+  /// **'This room is hidden from discovery and unavailable to anonymous guests'**
+  String get privateRoomAccessHint;
+
   /// No description provided for @createRoomSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Set the room name, description, and access method'**
+  /// **'Set the room name, visibility, and password protection'**
   String get createRoomSubtitle;
 
   /// No description provided for @publicRoom.
@@ -956,11 +998,27 @@ abstract class AppLocalizations {
   /// **'Join unavailable'**
   String get roomJoinCooldown;
 
-  /// No description provided for @roomAudienceWithMembers.
+  /// No description provided for @roomPresenceSummary.
   ///
   /// In en, this message translates to:
-  /// **'{viewerCount} online / {memberCount} members'**
-  String roomAudienceWithMembers(int viewerCount, int memberCount);
+  /// **'Online: {onlineMembers} members · {onlineGuests} guests'**
+  String roomPresenceSummary(int onlineMembers, int onlineGuests);
+
+  /// No description provided for @roomOnlineTotal.
+  ///
+  /// In en, this message translates to:
+  /// **'Online: {count}'**
+  String roomOnlineTotal(int count);
+
+  /// No description provided for @roomPresenceWithMembers.
+  ///
+  /// In en, this message translates to:
+  /// **'{onlineMembers} members online · {onlineGuests} guests online · {memberCount} members total'**
+  String roomPresenceWithMembers(
+    int onlineMembers,
+    int onlineGuests,
+    int memberCount,
+  );
 
   /// No description provided for @roomConnections.
   ///
@@ -2000,6 +2058,18 @@ abstract class AppLocalizations {
   /// **'Danmaku'**
   String get danmaku;
 
+  /// No description provided for @videoDanmaku.
+  ///
+  /// In en, this message translates to:
+  /// **'Video danmaku'**
+  String get videoDanmaku;
+
+  /// No description provided for @chatDanmaku.
+  ///
+  /// In en, this message translates to:
+  /// **'Chat danmaku'**
+  String get chatDanmaku;
+
   /// No description provided for @danmakuHint.
   ///
   /// In en, this message translates to:
@@ -2042,17 +2112,173 @@ abstract class AppLocalizations {
   /// **'Subtitles'**
   String get subtitles;
 
-  /// No description provided for @disableDanmaku.
+  /// No description provided for @disableVideoDanmaku.
   ///
   /// In en, this message translates to:
-  /// **'Turn off danmaku'**
-  String get disableDanmaku;
+  /// **'Turn off video danmaku'**
+  String get disableVideoDanmaku;
 
-  /// No description provided for @enableDanmaku.
+  /// No description provided for @enableVideoDanmaku.
   ///
   /// In en, this message translates to:
-  /// **'Turn on danmaku'**
-  String get enableDanmaku;
+  /// **'Turn on video danmaku'**
+  String get enableVideoDanmaku;
+
+  /// No description provided for @disableChatDanmaku.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn off chat danmaku'**
+  String get disableChatDanmaku;
+
+  /// No description provided for @enableChatDanmaku.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on chat danmaku'**
+  String get enableChatDanmaku;
+
+  /// No description provided for @overlaySettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle and danmaku settings'**
+  String get overlaySettings;
+
+  /// No description provided for @subtitleSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle settings'**
+  String get subtitleSettings;
+
+  /// No description provided for @videoDanmakuSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Video danmaku settings'**
+  String get videoDanmakuSettings;
+
+  /// No description provided for @chatDanmakuSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Chat danmaku settings'**
+  String get chatDanmakuSettings;
+
+  /// No description provided for @subtitleStyle.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle style'**
+  String get subtitleStyle;
+
+  /// No description provided for @subtitleSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle size'**
+  String get subtitleSize;
+
+  /// No description provided for @subtitleOpacity.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle opacity'**
+  String get subtitleOpacity;
+
+  /// No description provided for @subtitleBackground.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle background'**
+  String get subtitleBackground;
+
+  /// No description provided for @subtitlePosition.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle position'**
+  String get subtitlePosition;
+
+  /// No description provided for @subtitleColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle color'**
+  String get subtitleColor;
+
+  /// No description provided for @subtitleBackgroundColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle background color'**
+  String get subtitleBackgroundColor;
+
+  /// No description provided for @subtitleOutline.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle outline'**
+  String get subtitleOutline;
+
+  /// No description provided for @videoDanmakuStyle.
+  ///
+  /// In en, this message translates to:
+  /// **'Video danmaku style'**
+  String get videoDanmakuStyle;
+
+  /// No description provided for @chatDanmakuStyle.
+  ///
+  /// In en, this message translates to:
+  /// **'Chat danmaku style'**
+  String get chatDanmakuStyle;
+
+  /// No description provided for @danmakuSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Danmaku size'**
+  String get danmakuSize;
+
+  /// No description provided for @danmakuOpacity.
+  ///
+  /// In en, this message translates to:
+  /// **'Danmaku opacity'**
+  String get danmakuOpacity;
+
+  /// No description provided for @danmakuSpeed.
+  ///
+  /// In en, this message translates to:
+  /// **'Danmaku speed'**
+  String get danmakuSpeed;
+
+  /// No description provided for @danmakuArea.
+  ///
+  /// In en, this message translates to:
+  /// **'Danmaku area'**
+  String get danmakuArea;
+
+  /// No description provided for @danmakuOutline.
+  ///
+  /// In en, this message translates to:
+  /// **'Danmaku outline'**
+  String get danmakuOutline;
+
+  /// No description provided for @danmakuMassiveMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Massive danmaku'**
+  String get danmakuMassiveMode;
+
+  /// No description provided for @danmakuTop.
+  ///
+  /// In en, this message translates to:
+  /// **'Top danmaku'**
+  String get danmakuTop;
+
+  /// No description provided for @danmakuBottom.
+  ///
+  /// In en, this message translates to:
+  /// **'Bottom danmaku'**
+  String get danmakuBottom;
+
+  /// No description provided for @danmakuScroll.
+  ///
+  /// In en, this message translates to:
+  /// **'Scrolling danmaku'**
+  String get danmakuScroll;
+
+  /// No description provided for @resetOverlaySettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset overlay style'**
+  String get resetOverlaySettings;
 
   /// No description provided for @reload.
   ///
@@ -2587,6 +2813,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Stream mode'**
   String get streamMode;
+
+  /// No description provided for @publishKeyType.
+  ///
+  /// In en, this message translates to:
+  /// **'Publish key type'**
+  String get publishKeyType;
+
+  /// No description provided for @singleUsePublishKey.
+  ///
+  /// In en, this message translates to:
+  /// **'One-time key'**
+  String get singleUsePublishKey;
+
+  /// No description provided for @expiringPublishKey.
+  ///
+  /// In en, this message translates to:
+  /// **'Reusable until expiration'**
+  String get expiringPublishKey;
+
+  /// No description provided for @permanentPublishKey.
+  ///
+  /// In en, this message translates to:
+  /// **'Never expires'**
+  String get permanentPublishKey;
+
+  /// No description provided for @permanentPublishKeyDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Anyone with this key can publish until the server JWT secret changes.'**
+  String get permanentPublishKeyDescription;
+
+  /// No description provided for @noExpiration.
+  ///
+  /// In en, this message translates to:
+  /// **'Never expires'**
+  String get noExpiration;
+
+  /// No description provided for @publishKeyExpirationMustBeFuture.
+  ///
+  /// In en, this message translates to:
+  /// **'Expiration time must be in the future.'**
+  String get publishKeyExpirationMustBeFuture;
 
   /// No description provided for @audioAndVideo.
   ///
@@ -5576,6 +5844,12 @@ abstract class AppLocalizations {
   /// **'Could not subscribe to the playlist'**
   String get playlistSubscribeFailed;
 
+  /// No description provided for @playlistBrowseAccessDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'You do not have permission to browse this playlist'**
+  String get playlistBrowseAccessDenied;
+
   /// No description provided for @switchedAndPlaying.
   ///
   /// In en, this message translates to:
@@ -7223,8 +7497,8 @@ abstract class AppLocalizations {
   /// No description provided for @roomMemberUpdateSummary.
   ///
   /// In en, this message translates to:
-  /// **'{members, plural, =1{1 member} other{{members} members}} · Updated {time}'**
-  String roomMemberUpdateSummary(int members, String time);
+  /// **'{online} online · {members, plural, =1{1 member} other{{members} members}} · Updated {time}'**
+  String roomMemberUpdateSummary(int online, int members, String time);
 
   /// No description provided for @open.
   ///
@@ -7381,6 +7655,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Settings updated'**
   String get settingsUpdated;
+
+  /// No description provided for @roomVisibilityUpdated.
+  ///
+  /// In en, this message translates to:
+  /// **'Room visibility updated'**
+  String get roomVisibilityUpdated;
+
+  /// No description provided for @makeRoomPrivate.
+  ///
+  /// In en, this message translates to:
+  /// **'Make room private?'**
+  String get makeRoomPrivate;
+
+  /// No description provided for @makeRoomPrivateConfirmation.
+  ///
+  /// In en, this message translates to:
+  /// **'The room will be removed from discovery and current anonymous guests will be disconnected.'**
+  String get makeRoomPrivateConfirmation;
+
+  /// No description provided for @makePrivate.
+  ///
+  /// In en, this message translates to:
+  /// **'Make private'**
+  String get makePrivate;
 
   /// No description provided for @updateFailed.
   ///
@@ -7753,6 +8051,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Edit playlist'**
   String get editPlaylist;
+
+  /// No description provided for @playlistBrowseAccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Browse access'**
+  String get playlistBrowseAccess;
+
+  /// No description provided for @playlistBrowseAccessDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Default allows room members to browse static playlists and limits dynamic playlists to their creator.'**
+  String get playlistBrowseAccessDescription;
+
+  /// No description provided for @playlistBrowseAccessModeDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Default'**
+  String get playlistBrowseAccessModeDefault;
+
+  /// No description provided for @playlistBrowseAccessModeRoomMembers.
+  ///
+  /// In en, this message translates to:
+  /// **'Room members'**
+  String get playlistBrowseAccessModeRoomMembers;
+
+  /// No description provided for @playlistBrowseAccessModeCreatorOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Creator only'**
+  String get playlistBrowseAccessModeCreatorOnly;
 
   /// No description provided for @editMedia.
   ///
@@ -8900,11 +9228,17 @@ abstract class AppLocalizations {
   /// **'Active users'**
   String get activeUsers;
 
-  /// No description provided for @onlineUsers.
+  /// No description provided for @onlineMembersLabel.
   ///
   /// In en, this message translates to:
-  /// **'Online users'**
-  String get onlineUsers;
+  /// **'Online members'**
+  String get onlineMembersLabel;
+
+  /// No description provided for @onlineGuestsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Online guests'**
+  String get onlineGuestsLabel;
 
   /// No description provided for @bannedUsers.
   ///

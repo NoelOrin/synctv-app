@@ -9,12 +9,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:synctv_app/l10n/app_localizations.dart';
 import 'package:synctv_app/features/room/presentation/widgets/custom_video_player.dart';
 import 'package:synctv_app/features/room/application/player_volume_preferences_controller.dart';
+import 'package:synctv_app/features/room/application/playback_overlay_preferences_controller.dart';
+import 'package:synctv_app/features/media_p2p/application/p2p_media_preferences_controller.dart';
+import 'package:synctv_app/features/media_p2p/domain/p2p_media_preferences.dart';
 import 'package:synctv_app/features/room/application/danmaku_source.dart';
 import 'package:synctv_app/features/room/application/subtitle_source.dart';
 import 'package:synctv_app/contracts/synctv_models.dart';
 import 'package:synctv_app/features/room/domain/playback_resource_localizer.dart';
 import 'package:synctv_app/features/room/infrastructure/picture_in_picture_service.dart';
+import 'package:synctv_app/features/room/presentation/models/danmaku_model.dart';
 import 'package:video_player/video_player.dart';
+import 'package:synctv_app/features/room/presentation/widgets/danmaku_overlay.dart';
 
 import '../../../../test_app.dart';
 
@@ -61,6 +66,18 @@ final class _RecordingSubtitleSource implements SubtitleSource {
   }
 }
 
+final class _BilibiliJsonSubtitleSource implements SubtitleSource {
+  const _BilibiliJsonSubtitleSource();
+
+  @override
+  Future<Uint8List?> load(
+    Uri uri, {
+    Map<String, String> headers = const {},
+  }) async => Uint8List.fromList(
+    '{"body":[{"from":1.0,"to":3.0,"content":"Bilibili subtitle"}]}'.codeUnits,
+  );
+}
+
 final class _ControlledSubtitleSource implements SubtitleSource {
   final requests = <Uri>[];
   final documents = <Uri, Completer<Uint8List?>>{};
@@ -86,6 +103,40 @@ final class _MemoryPlayerVolumeStore implements PlayerVolumePreferencesStore {
 
 PlayerVolumePreferencesController _volumePreferences() =>
     PlayerVolumePreferencesController(store: _MemoryPlayerVolumeStore());
+
+final class _MemoryP2pPreferencesStore implements P2pMediaPreferencesStore {
+  P2pMediaPreferenceValues value = const P2pMediaPreferenceValues();
+
+  @override
+  Future<P2pMediaPreferenceValues> load() async => value;
+
+  @override
+  Future<void> save(P2pMediaPreferenceValues values) async {
+    value = values;
+  }
+}
+
+final class _MemoryOverlayPreferencesStore
+    implements PlaybackOverlayPreferencesStore {
+  PlaybackOverlayPreferenceValues value =
+      const PlaybackOverlayPreferenceValues();
+
+  @override
+  Future<PlaybackOverlayPreferenceValues> load() async => value;
+
+  @override
+  Future<void> save(PlaybackOverlayPreferenceValues values) async {
+    value = values;
+  }
+}
+
+P2pMediaPreferencesController _p2pPreferences() =>
+    P2pMediaPreferencesController(store: _MemoryP2pPreferencesStore());
+
+PlaybackOverlayPreferencesController _overlayPreferences() =>
+    PlaybackOverlayPreferencesController(
+      store: _MemoryOverlayPreferencesStore(),
+    );
 
 class _RecordingVideoPlayerController extends VideoPlayerController {
   _RecordingVideoPlayerController(VideoPlayerValue initialValue)
@@ -335,7 +386,8 @@ void main() {
     expect(visibility.showSync, isFalse);
     expect(visibility.showPlaybackRoute, isFalse);
     expect(visibility.showSpeed, isFalse);
-    expect(visibility.showDanmaku, isFalse);
+    expect(visibility.showVideoDanmaku, isFalse);
+    expect(visibility.showChatDanmaku, isFalse);
     expect(visibility.showSubtitles, isFalse);
     expect(visibility.showPictureInPicture, isFalse);
     expect(visibility.showSettings, isFalse);
@@ -362,7 +414,8 @@ void main() {
     expect(visibility.showSync, isTrue);
     expect(visibility.showPlaybackRoute, isTrue);
     expect(visibility.showSpeed, isTrue);
-    expect(visibility.showDanmaku, isTrue);
+    expect(visibility.showVideoDanmaku, isTrue);
+    expect(visibility.showChatDanmaku, isFalse);
     expect(visibility.showSubtitles, isTrue);
     expect(visibility.showPictureInPicture, isTrue);
     expect(visibility.showSendDanmaku, isTrue);
@@ -875,18 +928,23 @@ void main() {
         progressTop,
       );
 
-      final danmakuRow = find.byKey(
+      final videoDanmakuRow = find.byKey(
         const ValueKey('playback_overflow_control_slot_2'),
       );
-      final pictureInPictureRow = find.byKey(
+      final chatDanmakuRow = find.byKey(
         const ValueKey('playback_overflow_control_slot_3'),
       );
-      Switch danmakuSwitch() => tester.widget<Switch>(
-        find.descendant(of: danmakuRow, matching: find.byType(Switch)),
+      final pictureInPictureRow = find.byKey(
+        const ValueKey('playback_overflow_control_slot_4'),
+      );
+      Switch switchIn(Finder row) => tester.widget<Switch>(
+        find.descendant(of: row, matching: find.byType(Switch)),
       );
 
-      expect(find.text('Danmaku'), findsOneWidget);
-      expect(danmakuSwitch().value, isTrue);
+      expect(find.text('Video danmaku'), findsOneWidget);
+      expect(find.text('Chat danmaku'), findsOneWidget);
+      expect(switchIn(videoDanmakuRow).value, isTrue);
+      expect(switchIn(chatDanmakuRow).value, isTrue);
       expect(
         find.descendant(of: pictureInPictureRow, matching: find.byType(Switch)),
         findsOneWidget,
@@ -896,10 +954,11 @@ void main() {
       await tester.pump();
       expect(freeModeEnabled, isTrue);
 
-      await tester.tap(find.text('Danmaku'));
+      await tester.tap(find.text('Video danmaku'));
       await tester.pump();
       expect(menu, findsOneWidget);
-      expect(danmakuSwitch().value, isFalse);
+      expect(switchIn(videoDanmakuRow).value, isFalse);
+      expect(switchIn(chatDanmakuRow).value, isTrue);
 
       await tester.tap(find.text('Picture in picture'));
       await tester.pumpAndSettle();
@@ -950,11 +1009,12 @@ void main() {
 
     expect(find.text('Mute'), findsOneWidget);
     expect(find.text('Playback speed'), findsOneWidget);
-    expect(find.text('Danmaku'), findsOneWidget);
+    expect(find.text('Video danmaku'), findsOneWidget);
+    expect(find.text('Chat danmaku'), findsOneWidget);
     expect(find.text('Picture in picture'), findsOneWidget);
 
     final rows = [
-      for (var index = 0; index < 4; index++)
+      for (var index = 0; index < 5; index++)
         tester.getRect(
           find.byKey(ValueKey('playback_overflow_control_slot_$index')),
         ),
@@ -962,9 +1022,319 @@ void main() {
     expect(rows.map((row) => row.left).toSet(), hasLength(1));
     expect(rows[2].height, 52);
     expect(rows[3].height, 52);
+    expect(rows[4].height, 52);
+    final iconLefts = [
+      for (var index = 0; index < rows.length; index++)
+        tester
+            .getRect(
+              find
+                  .descendant(
+                    of: find.byKey(
+                      ValueKey('playback_overflow_control_slot_$index'),
+                    ),
+                    matching: find.byType(Icon),
+                  )
+                  .first,
+            )
+            .left,
+    ];
+    expect(iconLefts.toSet(), hasLength(1));
     for (var index = 1; index < rows.length; index++) {
       expect(rows[index].top, greaterThan(rows[index - 1].bottom));
     }
+  });
+
+  testWidgets('subtitle selection and subtitle style are separate controls', (
+    tester,
+  ) async {
+    final controller = _RecordingVideoPlayerController(
+      const VideoPlayerValue(
+        duration: Duration(minutes: 1),
+        isInitialized: true,
+        size: Size(1920, 1080),
+      ),
+    );
+    addTearDown(controller.dispose);
+    final overlay = _overlayPreferences();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: buildThemedTestApp,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: SizedBox(
+            width: 300,
+            height: 400,
+            child: CustomVideoPlayer(
+              volumePreferences: _volumePreferences(),
+              overlayPreferences: overlay,
+              subtitleSource: const _EmptySubtitleSource(),
+              controller: controller,
+              title: 'Video',
+              interactionMode: VideoPlayerInteractionMode.desktop,
+              subtitles: const {
+                'en': {'name': 'English'},
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('playback_overflow_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Subtitles'), findsOneWidget);
+    expect(find.text('Subtitle settings'), findsOneWidget);
+    expect(find.text('Video danmaku settings'), findsNothing);
+    expect(find.text('Chat danmaku settings'), findsNothing);
+
+    await tester.tap(find.text('Subtitle settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('Subtitle style'), findsOneWidget);
+    expect(find.text('Video danmaku style'), findsNothing);
+    expect(find.text('Chat danmaku style'), findsNothing);
+  });
+
+  testWidgets('danmaku settings expose independent controls', (tester) async {
+    final controller = _RecordingVideoPlayerController(
+      const VideoPlayerValue(
+        duration: Duration(minutes: 1),
+        isInitialized: true,
+        size: Size(1920, 1080),
+      ),
+    );
+    addTearDown(controller.dispose);
+    final overlay = _overlayPreferences();
+    final danmaku = DanmakuController(const _EmptyDanmakuSource())
+      ..videoController = controller;
+    addTearDown(danmaku.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: buildThemedTestApp,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: SizedBox(
+            width: 300,
+            height: 400,
+            child: CustomVideoPlayer(
+              volumePreferences: _volumePreferences(),
+              overlayPreferences: overlay,
+              subtitleSource: const _EmptySubtitleSource(),
+              controller: controller,
+              title: 'Video',
+              interactionMode: VideoPlayerInteractionMode.desktop,
+              danmakuController: danmaku,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('playback_overflow_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Video danmaku settings'), findsOneWidget);
+    expect(find.text('Chat danmaku settings'), findsOneWidget);
+    await tester.tap(find.text('Video danmaku settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('Video danmaku style'), findsOneWidget);
+    expect(find.text('Chat danmaku style'), findsNothing);
+    expect(find.text('Danmaku size'), findsOneWidget);
+    expect(find.text('Danmaku opacity'), findsOneWidget);
+    expect(find.text('Danmaku speed'), findsOneWidget);
+    expect(find.text('Danmaku area'), findsOneWidget);
+    expect(find.text('Massive danmaku'), findsOneWidget);
+  });
+
+  testWidgets('danmaku layers keep a stable shared item list', (tester) async {
+    final controller = _RecordingVideoPlayerController(
+      const VideoPlayerValue(
+        duration: Duration(minutes: 1),
+        isInitialized: true,
+        size: Size(1920, 1080),
+      ),
+    );
+    addTearDown(controller.dispose);
+    final danmaku = DanmakuController(const _EmptyDanmakuSource())
+      ..videoController = controller
+      ..addItems(const [
+        DanmakuItem(
+          text: 'video comment',
+          startTime: Duration.zero,
+          endTime: Duration(seconds: 8),
+          color: Colors.white,
+        ),
+        DanmakuItem(
+          text: 'room chat',
+          startTime: Duration.zero,
+          endTime: Duration(seconds: 8),
+          color: Colors.white,
+          origin: DanmakuOrigin.chat,
+        ),
+      ]);
+    addTearDown(danmaku.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: buildThemedTestApp,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: CustomVideoPlayer(
+            volumePreferences: _volumePreferences(),
+            overlayPreferences: _overlayPreferences(),
+            subtitleSource: const _EmptySubtitleSource(),
+            controller: controller,
+            title: 'Video',
+            interactionMode: VideoPlayerInteractionMode.desktop,
+            danmakuController: danmaku,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    Iterable<DanmakuOverlay> layers() =>
+        tester.widgetList<DanmakuOverlay>(find.byType(DanmakuOverlay));
+    expect(layers().map((layer) => layer.origin), {
+      DanmakuOrigin.video,
+      DanmakuOrigin.chat,
+    });
+    expect(
+      layers().every((layer) => identical(layer.danmakuList, danmaku.items)),
+      isTrue,
+    );
+
+    controller.value = controller.value.copyWith(
+      position: const Duration(seconds: 1),
+    );
+    await tester.pump();
+
+    expect(
+      layers().every((layer) => identical(layer.danmakuList, danmaku.items)),
+      isTrue,
+    );
+  });
+
+  testWidgets('P2P media toggle lives in more actions and persists changes', (
+    tester,
+  ) async {
+    final controller = _RecordingVideoPlayerController(
+      const VideoPlayerValue(
+        duration: Duration(minutes: 1),
+        isInitialized: true,
+        size: Size(1920, 1080),
+      ),
+    );
+    addTearDown(controller.dispose);
+    final p2p = _p2pPreferences();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: buildThemedTestApp,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: SizedBox(
+            width: 300,
+            height: 400,
+            child: CustomVideoPlayer(
+              volumePreferences: _volumePreferences(),
+              subtitleSource: const _EmptySubtitleSource(),
+              controller: controller,
+              title: 'Video',
+              interactionMode: VideoPlayerInteractionMode.desktop,
+              p2pMediaPreferences: p2p,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const Key('playback_p2p_media_button')), findsNothing);
+    await tester.tap(find.byKey(const Key('playback_overflow_button')));
+    await tester.pumpAndSettle();
+
+    final row = find.byKey(const ValueKey('playback_overflow_control_slot_4'));
+    expect(find.text('P2P media delivery'), findsOneWidget);
+    expect(
+      find.descendant(of: row, matching: find.byType(Switch)),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<Switch>(
+            find.descendant(of: row, matching: find.byType(Switch)),
+          )
+          .value,
+      isFalse,
+    );
+
+    await tester.tap(find.text('P2P media delivery'));
+    await tester.pumpAndSettle();
+    expect(p2p.enabled, isTrue);
+    expect(find.byKey(const Key('playback_overflow_controls')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('P2P toggle closes more actions before the player is removed', (
+    tester,
+  ) async {
+    final controller = _RecordingVideoPlayerController(
+      const VideoPlayerValue(
+        duration: Duration(minutes: 1),
+        isInitialized: true,
+        size: Size(1920, 1080),
+      ),
+    );
+    addTearDown(controller.dispose);
+    final p2p = _p2pPreferences();
+    final showPlayer = ValueNotifier(true);
+    p2p.addListener(() => showPlayer.value = false);
+    addTearDown(showPlayer.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: buildThemedTestApp,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: ValueListenableBuilder<bool>(
+            valueListenable: showPlayer,
+            builder: (context, visible, _) => SizedBox(
+              width: 300,
+              height: 400,
+              child: visible
+                  ? CustomVideoPlayer(
+                      volumePreferences: _volumePreferences(),
+                      subtitleSource: const _EmptySubtitleSource(),
+                      controller: controller,
+                      title: 'Video',
+                      interactionMode: VideoPlayerInteractionMode.desktop,
+                      p2pMediaPreferences: p2p,
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('playback_overflow_button')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('P2P media delivery'));
+    await tester.pumpAndSettle();
+
+    expect(p2p.enabled, isTrue);
+    expect(find.byKey(const Key('playback_overflow_controls')), findsNothing);
+    expect(find.byKey(const Key('playback_overflow_button')), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('playback route and more actions use shared control spacing', (
@@ -1263,6 +1633,51 @@ void main() {
       ]);
     },
   );
+
+  testWidgets('renders Bilibili JSON subtitles', (tester) async {
+    final controller = _RecordingVideoPlayerController(
+      const VideoPlayerValue(
+        duration: Duration(minutes: 1),
+        isInitialized: true,
+      ),
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: buildThemedTestApp,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: SizedBox(
+            width: 900,
+            height: 500,
+            child: CustomVideoPlayer(
+              volumePreferences: _volumePreferences(),
+              subtitleSource: const _BilibiliJsonSubtitleSource(),
+              controller: controller,
+              title: 'Bilibili',
+              interactionMode: VideoPlayerInteractionMode.desktop,
+              subtitles: const {
+                'sub_0': {
+                  'name': 'Chinese',
+                  'url': 'https://example.com/subtitle.json',
+                  'format': 'json',
+                },
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    controller.value = controller.value.copyWith(
+      position: const Duration(seconds: 2),
+    );
+    await tester.pump();
+
+    expect(find.text('Bilibili subtitle'), findsOneWidget);
+  });
 
   testWidgets(
     'subtitle localization uses its own delivery and only reloads for a new swarm',

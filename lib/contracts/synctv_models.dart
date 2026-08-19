@@ -1,5 +1,7 @@
 import 'package:synctv_app/contracts/proto_mapping.dart';
 import 'package:synctv_app/src/generated/proto/client.pb.dart' as client;
+import 'package:synctv_app/src/generated/proto/client.pbenum.dart'
+    as client_enum;
 import 'package:synctv_app/src/generated/proto/common.pbenum.dart'
     as common_enum;
 import 'package:synctv_app/src/generated/proto/source_config.pb.dart'
@@ -175,10 +177,12 @@ class SyncTvRoom {
   final String roomId;
   final String roomName;
   final String description;
-  final int viewerCount;
+  final int onlineMemberCount;
+  final int onlineGuestCount;
   final int connectionCount;
   final int memberCount;
   final bool needPassword;
+  final bool isPublic;
   final String creator;
   final String creatorId;
   final String creatorAvatarUrl;
@@ -206,14 +210,18 @@ class SyncTvRoom {
 
   bool get isActive => status == common_enum.RoomStatus.ROOM_STATUS_ACTIVE;
 
+  int get onlineCount => onlineMemberCount + onlineGuestCount;
+
   SyncTvRoom({
     required this.roomId,
     required this.roomName,
     this.description = '',
-    this.viewerCount = 0,
+    this.onlineMemberCount = 0,
+    this.onlineGuestCount = 0,
     this.connectionCount = 0,
     this.memberCount = 0,
     this.needPassword = false,
+    this.isPublic = true,
     this.creator = '',
     required this.creatorId,
     this.creatorAvatarUrl = '',
@@ -246,10 +254,12 @@ class SyncTvRoom {
     String? roomId,
     String? roomName,
     String? description,
-    int? viewerCount,
+    int? onlineMemberCount,
+    int? onlineGuestCount,
     int? connectionCount,
     int? memberCount,
     bool? needPassword,
+    bool? isPublic,
     String? creator,
     String? creatorId,
     String? creatorAvatarUrl,
@@ -279,10 +289,12 @@ class SyncTvRoom {
       roomId: roomId ?? this.roomId,
       roomName: roomName ?? this.roomName,
       description: description ?? this.description,
-      viewerCount: viewerCount ?? this.viewerCount,
+      onlineMemberCount: onlineMemberCount ?? this.onlineMemberCount,
+      onlineGuestCount: onlineGuestCount ?? this.onlineGuestCount,
       connectionCount: connectionCount ?? this.connectionCount,
       memberCount: memberCount ?? this.memberCount,
       needPassword: needPassword ?? this.needPassword,
+      isPublic: isPublic ?? this.isPublic,
       creator: creator ?? this.creator,
       creatorId: creatorId ?? this.creatorId,
       creatorAvatarUrl: creatorAvatarUrl ?? this.creatorAvatarUrl,
@@ -462,6 +474,7 @@ class RoomMediaEntry {
   final int updatedAt;
   final int itemCount;
   final client.ResourceAvailability availability;
+  final client_enum.PlaylistBrowseAccessMode browseAccessMode;
   final int version;
   final Map<String, String> headers;
   final bool isPlaylist;
@@ -504,6 +517,9 @@ class RoomMediaEntry {
     this.itemCount = 0,
     this.availability =
         client.ResourceAvailability.RESOURCE_AVAILABILITY_UNSPECIFIED,
+    this.browseAccessMode = client_enum
+        .PlaylistBrowseAccessMode
+        .PLAYLIST_BROWSE_ACCESS_MODE_DEFAULT,
     this.version = 0,
     this.headers = const {},
     this.isPlaylist = false,
@@ -709,6 +725,7 @@ class RoomMediaEntry {
     int? updatedAt,
     int? itemCount,
     client.ResourceAvailability? availability,
+    client_enum.PlaylistBrowseAccessMode? browseAccessMode,
     int? version,
     Map<String, String>? headers,
     bool? isPlaylist,
@@ -753,6 +770,7 @@ class RoomMediaEntry {
       updatedAt: updatedAt ?? this.updatedAt,
       itemCount: itemCount ?? this.itemCount,
       availability: availability ?? this.availability,
+      browseAccessMode: browseAccessMode ?? this.browseAccessMode,
       version: version ?? this.version,
       headers: headers ?? this.headers,
       isPlaylist: isPlaylist ?? this.isPlaylist,
@@ -1038,6 +1056,16 @@ class RoomMediaEntry {
   }
 
   static bool _isStreamDanmu(client.PlaybackDanmaku danmaku) {
+    final delivery = danmaku.delivery;
+    if (delivery ==
+        client.PlaybackDanmakuDelivery.PLAYBACK_DANMAKU_DELIVERY_EVENT_STREAM) {
+      return true;
+    }
+    if (delivery ==
+        client.PlaybackDanmakuDelivery.PLAYBACK_DANMAKU_DELIVERY_DOCUMENT) {
+      return false;
+    }
+
     final format = danmaku.format.trim().toLowerCase();
     if (format == 'synctv-bilibili-live') return true;
     if (format == 'synctv-twitch-live') return true;
@@ -1062,6 +1090,7 @@ class RoomMediaItem extends RoomMediaEntry {
     super.position,
     super.addedAt,
     super.availability,
+    super.browseAccessMode,
     super.version,
     super.headers,
     super.sourceProvider,
@@ -1087,6 +1116,7 @@ class RoomPlaylistItem extends RoomMediaEntry {
     super.updatedAt,
     super.itemCount,
     super.availability,
+    super.browseAccessMode,
     super.version,
     super.description,
     super.coverUrl,
@@ -1465,7 +1495,6 @@ class SyncTvRoomSettings {
   bool allowAutoJoin;
   int maxMembers;
   bool chatEnabled;
-  bool danmakuEnabled;
   bool autoPlayEnabled;
   client.PlayMode autoPlayMode;
   int autoPlayDelay;
@@ -1485,7 +1514,6 @@ class SyncTvRoomSettings {
     this.allowAutoJoin = true,
     this.maxMembers = 100,
     this.chatEnabled = true,
-    this.danmakuEnabled = true,
     this.autoPlayEnabled = true,
     this.autoPlayMode = client.PlayMode.PLAY_MODE_SEQUENTIAL,
     this.autoPlayDelay = 3,
@@ -1514,7 +1542,6 @@ class SyncTvRoomSettings {
       allowAutoJoin: _readBool(json, 'allowAutoJoin', true),
       maxMembers: _readInt(json, 'maxMembers', 100),
       chatEnabled: _readBool(json, 'chatEnabled', true),
-      danmakuEnabled: _readBool(json, 'danmakuEnabled', true),
       autoPlayEnabled: _readBool(autoPlay, 'enabled', true),
       autoPlayMode:
           parsedMode == null ||
@@ -1550,7 +1577,6 @@ class SyncTvRoomSettings {
       'allowAutoJoin': allowAutoJoin,
       'maxMembers': maxMembers,
       'chatEnabled': chatEnabled,
-      'danmakuEnabled': danmakuEnabled,
       'autoPlay': {
         'enabled': autoPlayEnabled,
         'mode': autoPlayMode.value,

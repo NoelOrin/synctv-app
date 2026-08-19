@@ -20,7 +20,7 @@ enum RoomRealtimeMessageKind {
   roomSettings,
   mediaLibrary,
   playbackHistory,
-  viewerCount,
+  presenceCount,
   memberEvent,
   onlineEvent,
   chatPin,
@@ -68,6 +68,8 @@ class RoomRealtimeError {
   final String clientOperationId;
 
   bool get isConflict => code == 2003;
+
+  bool get isPermissionDenied => code == 4000;
 }
 
 class RoomRealtimeOnlineEvent {
@@ -309,7 +311,8 @@ class RoomRealtimeMessage {
     this.resourceObserveId = '',
     this.resourceVersion = '',
     this.resourceEvent = false,
-    this.resourceTotal = 0,
+    this.onlineMemberCount = 0,
+    this.onlineGuestCount = 0,
   });
 
   final RoomRealtimeMessageKind kind;
@@ -349,13 +352,18 @@ class RoomRealtimeMessage {
   final String resourceObserveId;
   final String resourceVersion;
   final bool resourceEvent;
-  final int resourceTotal;
+  final int onlineMemberCount;
+  final int onlineGuestCount;
 
   bool get isChatCreated => chatEventKind == RoomRealtimeChatEventKind.created;
   bool get isChatEdited =>
       chatEdited || chatEventKind == RoomRealtimeChatEventKind.edited;
   bool get isChatDeleted =>
       chatDeleted || chatEventKind == RoomRealtimeChatEventKind.deleted;
+
+  bool get isPlaylistBrowseAccessDenied =>
+      resourceObserveId == 'playlist_items' &&
+      error?.isPermissionDenied == true;
 }
 
 class RoomRealtimeSession {

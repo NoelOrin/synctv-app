@@ -9,15 +9,19 @@ import 'dart:async';
 class DanmakuOverlay extends StatefulWidget {
   final VideoPlayerController? videoController;
   final List<local.DanmakuItem> danmakuList;
+  final local.DanmakuOrigin? origin;
   final bool isEnabled;
-  final double opacity;
+  final double? opacity;
+  final DanmakuOption option;
 
   const DanmakuOverlay({
     super.key,
     required this.videoController,
     required this.danmakuList,
+    this.origin,
     this.isEnabled = true,
-    this.opacity = 0.8,
+    this.opacity,
+    this.option = const DanmakuOption(opacity: 0.8),
   });
 
   @override
@@ -48,6 +52,10 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
   void didUpdateWidget(DanmakuOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);
 
+    if (_optionsDiffer(widget.option, oldWidget.option)) {
+      _danmakuController?.updateOption(widget.option);
+    }
+
     // 如果弹幕列表变化，重置处理状态
     if (widget.danmakuList != oldWidget.danmakuList) {
       _processedDanmakuIndices.clear();
@@ -64,6 +72,24 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
         _danmakuController?.clear();
       }
     }
+  }
+
+  bool _optionsDiffer(DanmakuOption a, DanmakuOption b) {
+    return a.fontSize != b.fontSize ||
+        a.fontWeight != b.fontWeight ||
+        a.fontFamily != b.fontFamily ||
+        a.area != b.area ||
+        a.duration != b.duration ||
+        a.staticDuration != b.staticDuration ||
+        a.opacity != b.opacity ||
+        a.hideTop != b.hideTop ||
+        a.hideBottom != b.hideBottom ||
+        a.hideScroll != b.hideScroll ||
+        a.hideSpecial != b.hideSpecial ||
+        a.strokeWidth != b.strokeWidth ||
+        a.massiveMode != b.massiveMode ||
+        a.safeArea != b.safeArea ||
+        a.lineHeight != b.lineHeight;
   }
 
   /// 开始视频同步
@@ -111,6 +137,10 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
     int addedCount = 0;
     for (int i = 0; i < widget.danmakuList.length; i++) {
       final danmaku = widget.danmakuList[i];
+
+      if (widget.origin != null && danmaku.origin != widget.origin) {
+        continue;
+      }
 
       // 如果这条弹幕已经处理过，跳过
       if (_processedDanmakuIndices.contains(i)) {
@@ -189,18 +219,9 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
         debugPrint('Danmaku controller created');
         _danmakuController = controller;
       },
-      option: DanmakuOption(
-        fontSize: 25.0,
-        opacity: widget.opacity,
-        duration: 8, // 8秒滚动时间
-        strokeWidth: 1.5, // 显示描边
-        area: 1.0, // 使用全屏幕区域
-        massiveMode: false, // 不使用海量模式，避免弹幕重叠
-        hideTop: false,
-        hideScroll: false,
-        hideBottom: false,
-        safeArea: false, // 不预留安全区域，让弹幕贴合视频
-      ),
+      option: widget.opacity == null
+          ? widget.option
+          : widget.option.copyWith(opacity: widget.opacity),
     );
   }
 }
